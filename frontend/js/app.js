@@ -1115,8 +1115,8 @@ async function loadAnalytics() {
         // Health Score
         const scoreEl = document.getElementById("ai-health-score");
         const ratingEl = document.getElementById("ai-health-rating");
-        if (scoreEl) scoreEl.textContent = `${health.health_score} / 100`;
-        if (ratingEl) ratingEl.textContent = `${health.rating} • ${health.recommendations[0] || 'System Healthy'}`;
+        if (scoreEl) scoreEl.textContent = `${health.health_score || health.score || 0} / 100`;
+        if (ratingEl) ratingEl.textContent = `${health.rating || health.status || 'Active'} • ${(health.recommendations && health.recommendations[0]) || 'System Healthy'}`;
 
         // Deduplication & Cost
         const dedupEl = document.getElementById("ai-dedup-multiplier");
@@ -1126,15 +1126,28 @@ async function loadAnalytics() {
         const velocityEl = document.getElementById("ai-growth-rate");
         const runwayEl = document.getElementById("ai-days-to-quota");
 
-        if (dedupEl) dedupEl.textContent = `${overview.deduplication.ratio_multiplier}x`;
-        if (dedupPctEl) dedupPctEl.textContent = `${overview.deduplication.space_saved_percentage}% space saved via deduplication`;
-        if (costEl) costEl.textContent = `$${overview.cost_estimation.estimated_monthly_cost_usd} / mo`;
-        if (costSavedEl) costSavedEl.textContent = `Saved $${overview.cost_estimation.monthly_cost_saved_usd}/mo via deduplication`;
-        if (velocityEl) velocityEl.textContent = `+${formatBytes(forecast.daily_growth_bytes)} / day`;
-        if (runwayEl) runwayEl.textContent = forecast.days_to_quota ? `Days to 10GB Quota: ${forecast.days_to_quota} days` : 'Unlimited quota headroom';
+        const dedupRatio = overview.deduplication?.ratio_multiplier ?? overview.deduplication_ratio ?? 1.0;
+        const spaceSavedPct = overview.deduplication?.space_saved_percentage ?? 0;
+        const estCost = overview.cost_estimation?.estimated_monthly_cost_usd ?? 0.0;
+        const costSaved = overview.cost_estimation?.monthly_cost_saved_usd ?? 0.0;
+
+        if (dedupEl) dedupEl.textContent = `${dedupRatio}x`;
+        if (dedupPctEl) dedupPctEl.textContent = `${spaceSavedPct}% space saved via deduplication`;
+        if (costEl) costEl.textContent = `$${estCost.toFixed(2)} / mo`;
+        if (costSavedEl) costSavedEl.textContent = `Saved $${costSaved.toFixed(2)}/mo via deduplication`;
+        if (velocityEl) velocityEl.textContent = `+${formatBytes(forecast.daily_growth_bytes || 0)} / day`;
+        
+        const daysToQuota = forecast.days_to_quota ?? forecast.days_until_quota_exhausted;
+        if (runwayEl) runwayEl.textContent = (daysToQuota !== null && daysToQuota !== undefined) ? `Days to Quota: ${daysToQuota} days` : 'Unlimited quota headroom';
 
         // 30-Day Forecast Bars
-        const maxVal = Math.max(forecast.projections.day_30_bytes, 1024 * 1024);
+        const proj = forecast.projections || {};
+        const curBytes = proj.day_0_bytes ?? forecast.current_stored_bytes ?? 0;
+        const d7Bytes = proj.day_7_bytes ?? curBytes;
+        const d14Bytes = proj.day_14_bytes ?? curBytes;
+        const d30Bytes = proj.day_30_bytes ?? forecast.projected_bytes_30d ?? curBytes;
+
+        const maxVal = Math.max(d30Bytes, curBytes, 1024 * 1024);
         const getPct = (b) => Math.max(12, Math.min(100, Math.round((b / maxVal) * 100)));
 
         const bar0 = document.getElementById("bar-day-0");
@@ -1142,61 +1155,108 @@ async function loadAnalytics() {
         const bar14 = document.getElementById("bar-day-14");
         const bar30 = document.getElementById("bar-day-30");
 
-        if (bar0) { bar0.style.height = `${getPct(forecast.current_stored_bytes)}%`; bar0.title = formatBytes(forecast.current_stored_bytes); }
-        if (bar7) { bar7.style.height = `${getPct(forecast.projections.day_7_bytes)}%`; bar7.title = formatBytes(forecast.projections.day_7_bytes); }
-        if (bar14) { bar14.style.height = `${getPct(forecast.projections.day_14_bytes)}%`; bar14.title = formatBytes(forecast.projections.day_14_bytes); }
-        if (bar30) { bar30.style.height = `${getPct(forecast.projections.day_30_bytes)}%`; bar30.title = formatBytes(forecast.projections.day_30_bytes); }
+        if (bar0) { bar0.style.height = `${getPct(curBytes)}%`; bar0.title = formatBytes(curBytes); }
+        if (bar7) { bar7.style.height = `${getPct(d7Bytes)}%`; bar7.title = formatBytes(d7Bytes); }
+        if (bar14) { bar14.style.height = `${getPct(d14Bytes)}%`; bar14.title = formatBytes(d14Bytes); }
+        if (bar30) { bar30.style.height = `${getPct(d30Bytes)}%`; bar30.title = formatBytes(d30Bytes); }
 
         const summaryText = document.getElementById("forecast-summary-text");
         if (summaryText) {
-            summaryText.textContent = `Forecasting ${formatBytes(forecast.projections.day_30_bytes)} in storage within 30 days based on recent linear backup velocity.`;
+            summaryText.textContent = `Forecasting ${formatBytes(d30Bytes)} in storage within 30 days based on ${forecast.growth_model || 'linear backup velocity'}. Confidence: ${forecast.forecast_confidence || 'Normal'}.`;
         }
 
         // File Types Breakdown
         const ftContainer = document.getElementById("file-types-breakdown-container");
-        ftContainer.innerHTML = "";
-        const breakdown = overview.file_breakdown || {};
-        const entries = Object.entries(breakdown);
+        if (ftContainer) {
+            ftContainer.innerHTML = "";
+            const breakdown = overview.file_breakdown || {};
+            const entries = Object.entries(breakdown);
 
-        if (entries.length === 0) {
-            ftContainer.innerHTML = "<span style='font-size:0.85rem;color:var(--text-secondary);'>No files backed up yet.</span>";
-        } else {
-            const totalBytes = entries.reduce((acc, curr) => acc + curr[1].bytes, 0) || 1;
-            entries.slice(0, 6).forEach(([ext, info]) => {
-                const pct = Math.round((info.bytes / totalBytes) * 100);
-                const row = document.createElement("div");
-                row.innerHTML = `
-                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.25rem;">
-                        <span><strong>${ext}</strong> (${info.count} files)</span>
-                        <span>${formatBytes(info.bytes)} (${pct}%)</span>
-                    </div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width:${pct}%;"></div>
-                    </div>
-                `;
-                ftContainer.appendChild(row);
-            });
+            if (entries.length === 0) {
+                ftContainer.innerHTML = "<span style='font-size:0.85rem;color:var(--text-secondary);'>No files backed up yet.</span>";
+            } else {
+                const totalBytes = entries.reduce((acc, curr) => acc + curr[1].bytes, 0) || 1;
+                entries.slice(0, 6).forEach(([ext, info]) => {
+                    const pct = Math.round((info.bytes / totalBytes) * 100);
+                    const row = document.createElement("div");
+                    row.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.25rem;">
+                            <span><strong>${escapeHTML(ext)}</strong> (${info.count} files)</span>
+                            <span>${formatBytes(info.bytes)} (${pct}%)</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar-fill" style="width:${pct}%;"></div>
+                        </div>
+                    `;
+                    ftContainer.appendChild(row);
+                });
+            }
+        }
+
+        // Multi-Cloud Cost Comparison Table
+        const cloudComp = overview.cloud_cost_comparison;
+        if (cloudComp) {
+            if (cloudComp.gcs) {
+                const el = document.getElementById("cost-gcs-std"); if (el) el.textContent = `$${cloudComp.gcs.standard_monthly_usd.toFixed(2)}`;
+                const elN = document.getElementById("cost-gcs-near"); if (elN) elN.textContent = `$${cloudComp.gcs.nearline_monthly_usd.toFixed(2)}`;
+                const elA = document.getElementById("cost-gcs-arch"); if (elA) elA.textContent = `$${cloudComp.gcs.archive_monthly_usd.toFixed(2)}`;
+                const elS = document.getElementById("cost-gcs-saved"); if (elS) elS.textContent = `-$${cloudComp.gcs.saved_via_dedup_usd.toFixed(2)}`;
+            }
+            if (cloudComp.aws_s3) {
+                const el = document.getElementById("cost-aws-std"); if (el) el.textContent = `$${cloudComp.aws_s3.standard_monthly_usd.toFixed(2)}`;
+                const elI = document.getElementById("cost-aws-ia"); if (elI) elI.textContent = `$${cloudComp.aws_s3.ia_monthly_usd.toFixed(2)}`;
+                const elA = document.getElementById("cost-aws-arch"); if (elA) elA.textContent = `$${cloudComp.aws_s3.deep_archive_monthly_usd.toFixed(2)}`;
+                const elS = document.getElementById("cost-aws-saved"); if (elS) elS.textContent = `-$${cloudComp.aws_s3.saved_via_dedup_usd.toFixed(2)}`;
+            }
+            if (cloudComp.azure_blob) {
+                const el = document.getElementById("cost-az-hot"); if (el) el.textContent = `$${cloudComp.azure_blob.hot_monthly_usd.toFixed(2)}`;
+                const elC = document.getElementById("cost-az-cool"); if (elC) elC.textContent = `$${cloudComp.azure_blob.cool_monthly_usd.toFixed(2)}`;
+                const elA = document.getElementById("cost-az-arch"); if (elA) elA.textContent = `$${cloudComp.azure_blob.archive_monthly_usd.toFixed(2)}`;
+                const elS = document.getElementById("cost-az-saved"); if (elS) elS.textContent = `-$${cloudComp.azure_blob.saved_via_dedup_usd.toFixed(2)}`;
+            }
+        }
+
+        // AI Protection Recommendations List
+        const recListEl = document.getElementById("analytics-recommendations-list");
+        if (recListEl) {
+            recListEl.innerHTML = "";
+            const recs = health.recommendations || [];
+            if (recs.length === 0) {
+                recListEl.innerHTML = "<li style='color:var(--success);'>✅ Backup posture is optimal. No urgent actions needed.</li>";
+            } else {
+                recs.forEach(r => {
+                    const li = document.createElement("li");
+                    li.style.display = "flex";
+                    li.style.alignItems = "flex-start";
+                    li.style.gap = "0.5rem";
+                    li.innerHTML = `<span>💡</span><span>${escapeHTML(r)}</span>`;
+                    recListEl.appendChild(li);
+                });
+            }
         }
 
         // Top 10 Largest Files
         const largeTbody = document.getElementById("large-files-table-body");
-        largeTbody.innerHTML = "";
-        const files = largeFiles.large_files || [];
+        if (largeTbody) {
+            largeTbody.innerHTML = "";
+            const files = largeFiles.large_files || [];
 
-        if (files.length === 0) {
-            largeTbody.innerHTML = "<tr><td colspan='5' style='text-align:center;'>No large files recorded.</td></tr>";
-        } else {
-            files.forEach(f => {
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-                    <td><strong>${escapeHTML(f.file_name)}</strong></td>
-                    <td><code>${f.file_extension || 'none'}</code></td>
-                    <td>${formatBytes(f.file_size)}</td>
-                    <td style="font-size:0.8rem;color:var(--text-secondary);">${escapeHTML(f.relative_path)}</td>
-                    <td>${escapeHTML(f.snapshot_name)}</td>
-                `;
-                largeTbody.appendChild(tr);
-            });
+            if (files.length === 0) {
+                largeTbody.innerHTML = "<tr><td colspan='5' style='text-align:center;'>No large files recorded.</td></tr>";
+            } else {
+                files.forEach(f => {
+                    const tr = document.createElement("tr");
+                    const ext = f.file_extension || (f.file_name.includes('.') ? '.' + f.file_name.split('.').pop() : 'none');
+                    tr.innerHTML = `
+                        <td><strong>${escapeHTML(f.file_name)}</strong></td>
+                        <td><code>${escapeHTML(ext)}</code></td>
+                        <td>${formatBytes(f.file_size)}</td>
+                        <td style="font-size:0.8rem;color:var(--text-secondary);">${escapeHTML(f.relative_path)}</td>
+                        <td>${escapeHTML(f.snapshot_name || (f.snapshot_id ? 'Snap #' + f.snapshot_id.slice(0, 6) : 'Active'))}</td>
+                    `;
+                    largeTbody.appendChild(tr);
+                });
+            }
         }
 
     } catch (err) {

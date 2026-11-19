@@ -207,6 +207,9 @@ def tool_explain_security_alerts(user_id: str, db: Session) -> Dict[str, Any]:
 
 def tool_check_system_health(user_id: str, db: Session) -> Dict[str, Any]:
     """Evaluate overall system health score and operational metrics."""
+    from backend.app.services.analytics_service import calculate_backup_health_score
+    health_res = calculate_backup_health_score(user_id, db)
+
     latest_snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
     failed_recent = db.query(BackupJob).filter(
         BackupJob.user_id == user_id,
@@ -219,38 +222,22 @@ def tool_check_system_health(user_id: str, db: Session) -> Dict[str, Any]:
         RansomwareAlert.status == "ACTIVE"
     ).count()
 
-    # Calculate Backup Health Score (0 - 100)
-    score = 100
-    if not latest_snap:
-        score -= 40
-    else:
-        hours_since = (datetime.utcnow() - latest_snap.created_at).total_seconds() / 3600
-        if hours_since > 48:
-            score -= 25
-        elif hours_since > 24:
-            score -= 10
-
-    if failed_recent > 0:
-        score -= min(30, failed_recent * 10)
-
-    if active_alerts > 0:
-        score -= min(40, active_alerts * 20)
-
-    score = max(0, min(100, score))
-
-    health_status = "HEALTHY" if score >= 80 else ("WARNING" if score >= 50 else "CRITICAL")
-
     return {
         "status": "success",
-        "health_score": score,
-        "health_status": health_status,
+        "health_score": health_res["score"],
+        "health_status": health_res["status"],
+        "rating": health_res["rating"],
         "latest_backup_time": latest_snap.created_at.isoformat() if latest_snap else None,
         "recent_failures_count": failed_recent,
-        "active_security_alerts_count": active_alerts
+        "active_security_alerts_count": active_alerts,
+        "breakdown": health_res.get("breakdown", {}),
+        "components": health_res.get("components", {}),
+        "recommendations": health_res.get("recommendations", [])
     }
 
 def tool_get_backup_recommendations(user_id: str, db: Session) -> Dict[str, Any]:
-    """Provide intelligent recommendations based on user's actual backup history."""
+    """Provide intelligent recommendations based on user's actual backup history and storage intelligence."""
+    from backend.app.services.analytics_service import get_storage_optimization_suggestions
     recs = []
     plans = db.query(BackupPlan).filter(BackupPlan.user_id == user_id, BackupPlan.is_active == True).all()
 
@@ -266,6 +253,13 @@ def tool_get_backup_recommendations(user_id: str, db: Session) -> Dict[str, Any]
     latest_snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
     if latest_snap and (datetime.utcnow() - latest_snap.created_at).total_seconds() > 86400:
         recs.append("Your latest snapshot is over 24 hours old. Execute a backup now to capture recent file modifications.")
+
+    # Add storage optimization & cadence suggestions
+    opt_data = get_storage_optimization_suggestions(user_id, db)
+    for s in opt_data.get("suggestions", []):
+        if s.get("type") in ["COLD_DATA_TIERING", "STALE_PLAN", "CADENCE_RECOMMENDATION"]:
+            if s.get("recommendation") and s["recommendation"] not in recs:
+                recs.append(s["recommendation"])
 
     return {
         "status": "success",

@@ -135,3 +135,113 @@ def test_backup_health_score(db_session):
     assert score_res["score"] >= 70
     assert score_res["status"] in ["EXCELLENT", "HEALTHY"]
     assert score_res["components"]["rpo_recency_score"] == 35
+
+
+def test_storage_forecast_multisnap_regression(db_session):
+    user = User(email="regression_user@university.edu", password_hash="hash", full_name="Regression User")
+    db_session.add(user)
+    db_session.commit()
+
+    plan = BackupPlan(user_id=user.id, plan_name="Regression Plan", source_directories="[]")
+    db_session.add(plan)
+    db_session.commit()
+
+    now = datetime.utcnow()
+    # Add 5 snapshots with steady growth
+    for i in range(5):
+        s = Snapshot(
+            plan_id=plan.id,
+            user_id=user.id,
+            snapshot_number=i + 1,
+            name=f"Snap #{i + 1}",
+            total_stored_bytes=1000000 + (i * 200000),
+            created_at=now - timedelta(days=(4 - i) * 2)
+        )
+        db_session.add(s)
+    db_session.commit()
+
+    res = storage_forecast(days=30, current_user=user, db=db_session)
+    assert res["status"] == "calculated"
+    assert res["growth_model"] == "least_squares_linear_regression"
+    assert res["forecast_confidence"] == "HIGH"
+    assert "projections" in res
+    assert res["projections"]["day_7_bytes"] >= res["current_stored_bytes"]
+    assert res["projections"]["day_30_bytes"] >= res["projections"]["day_7_bytes"]
+    assert res["projections"]["day_90_bytes"] >= res["projections"]["day_30_bytes"]
+
+
+def test_backup_failure_trends_and_root_causes(db_session):
+    from backend.app.services.analytics_service import get_backup_failure_trends
+
+    user = User(email="failure_trends_user@university.edu", password_hash="hash", full_name="Failure User")
+    db_session.add(user)
+    db_session.commit()
+
+    plan = BackupPlan(user_id=user.id, plan_name="Failed Plan", source_directories="[]")
+    db_session.add(plan)
+    db_session.commit()
+
+    now = datetime.utcnow()
+    # 2 success, 3 failed with different root causes
+    j1 = BackupJob(plan_id=plan.id, user_id=user.id, status="SUCCESS", started_at=now - timedelta(days=5))
+    j2 = BackupJob(plan_id=plan.id, user_id=user.id, status="SUCCESS", started_at=now - timedelta(days=4))
+    j3 = BackupJob(
+        plan_id=plan.id,
+        user_id=user.id,
+        status="FAILED",
+        error_message="Permission denied: [Errno 13] Cannot access /var/data",
+        started_at=now - timedelta(days=3)
+    )
+    j4 = BackupJob(
+        plan_id=plan.id,
+        user_id=user.id,
+        status="FAILED",
+        error_message="Connection timed out while uploading chunk to storage",
+        started_at=now - timedelta(days=2)
+    )
+    j5 = BackupJob(
+        plan_id=plan.id,
+        user_id=user.id,
+        status="FAILED",
+        error_message="SHA256 checksum mismatch integrity check failed",
+        started_at=now - timedelta(days=1)
+    )
+    db_session.add_all([j1, j2, j3, j4, j5])
+    db_session.commit()
+
+    trends = get_backup_failure_trends(user_id=user.id, db=db_session, lookback_days=14)
+    assert trends["status"] == "success"
+    assert trends["total_jobs"] == 5
+    assert trends["successful_jobs"] == 2
+    assert trends["failed_jobs"] == 3
+    assert trends["success_rate_percentage"] == 40.0
+    assert trends["failure_rate_percentage"] == 60.0
+
+    assert trends["root_cause_counts"]["PERMISSION_DENIED"] == 1
+    assert trends["root_cause_counts"]["TIMEOUT_OR_NETWORK"] == 1
+    assert trends["root_cause_counts"]["INTEGRITY_CHECK_FAILED"] == 1
+
+    assert len(trends["root_cause_analysis"]) == 3
+    top_cause = trends["root_cause_analysis"][0]
+    assert "remediation" in top_cause
+    assert len(top_cause["remediation"]) > 10
+
+
+def test_storage_optimization_suggestions(db_session):
+    from backend.app.services.analytics_service import get_storage_optimization_suggestions
+
+    user = User(email="opt_user@university.edu", password_hash="hash", full_name="Optimization User")
+    db_session.add(user)
+    db_session.commit()
+
+    # Plan with no snapshot
+    plan = BackupPlan(user_id=user.id, plan_name="Empty Plan", source_directories="[]", is_active=True)
+    db_session.add(plan)
+    db_session.commit()
+
+    res = get_storage_optimization_suggestions(user_id=user.id, db=db_session)
+    assert res["status"] == "success"
+    assert res["total_suggestions"] >= 2
+    titles = [s["title"] for s in res["suggestions"]]
+    assert any("Empty Plan" in t for t in titles)
+    assert any("Cadence" in t for t in titles)

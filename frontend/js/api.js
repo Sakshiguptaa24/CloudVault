@@ -226,11 +226,19 @@ class CloudVaultAPI {
     }
 
     async getHealthScore() {
-        return await this.request("/api/v1/analytics/backup-health-score");
+        return await this.request("/api/v1/analytics/health-score");
     }
 
     async getTopLargeFiles(limit = 10) {
         return await this.request(`/api/v1/analytics/large-files?limit=${limit}`);
+    }
+
+    async getFailureTrends(lookbackDays = 30) {
+        return await this.request(`/api/v1/analytics/failure-trends?lookback_days=${lookbackDays}`);
+    }
+
+    async getStorageOptimizations() {
+        return await this.request("/api/v1/analytics/optimizations");
     }
 
     // Multi-Cloud

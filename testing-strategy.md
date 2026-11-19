@@ -1,8 +1,8 @@
 # CloudVault 2.0: Quality Assurance & Testing Strategy
 **Project:** CloudVault 2.0 – Intelligent Cloud Backup, Security & Disaster Recovery Platform  
-**Total Automated Tests:** 51 Tests Across 15 Test Suites  
+**Total Automated Tests:** 54 Tests Across 15 Test Suites  
 **Verification Result:** 100% Passed (0 Failures, 0 Regressions)  
-**Execution Runtime:** ~9.1 seconds  
+**Execution Runtime:** ~9.5 seconds  
 **Test Harness:** Pytest 9.2, FastAPI TestClient, AnyIO, In-Memory / Isolated SQLite  
 
 ---
@@ -79,10 +79,13 @@ CloudVault 2.0 enforces a multi-tiered testing strategy designed to validate cor
 - `test_azure_blob_storage_provider_lifecycle`: Tests Azure Blob Storage adapter lifecycle, immutable blob containers, and hot/cool/archive tiering.
 - `test_multi_cloud_inventory_and_endpoints`: Tests `/api/v1/storage/clouds` multi-cloud status and `/api/v1/health` diagnostics.
 
-### 6. Predictive AI Analytics (`test_predictive_analytics.py`)
-- `test_analytics_overview`: Validates logical vs physical storage calculations, deduplication multipliers, and cloud cost estimations.
+### 6. Predictive AI Analytics (`test_predictive_analytics.py`) — 6 Tests
+- `test_analytics_overview`: Validates logical vs physical storage calculations, deduplication multipliers, and multi-cloud cost models.
 - `test_storage_forecast_baseline_and_growth`: Tests linear growth modeling and days-to-quota projections across 7, 14, and 30-day windows.
-- `test_backup_health_score`: Tests multi-dimensional 100-point health score (RPO, reliability, security shield, and deduplication).
+- `test_backup_health_score`: Tests multi-dimensional 100-point health score (RPO recency, job reliability, security shield, and deduplication efficiency).
+- `test_storage_forecast_multisnap_regression`: Verifies least-squares linear velocity slope across 5 snapshots and multi-window projections (7d, 14d, 30d, 90d).
+- `test_backup_failure_trends_and_root_causes`: Tests failure trend categorization (Permission Denied, Timeout, Checksum Mismatch) and actionable remediation advice.
+- `test_storage_optimization_suggestions`: Validates stale backup plan discovery, cold data archival opportunities, and cadence suggestions.
 
 ### 7. Real-Time Events & Notifications (`test_events.py`)
 - `test_events_poll_endpoint`: Tests fallback polling endpoint returning active backup jobs, new ransomware alerts, and completed DR drills.

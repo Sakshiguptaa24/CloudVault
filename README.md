@@ -1,7 +1,7 @@
 # CloudVault 2.0 – AI-Powered Cloud Backup, Security & Disaster Recovery
 
 > **Cloud Computing Capstone & Cloud SaaS Foundation**  
-> **Status:** Fully Functional & Tested (51/51 Tests Passing)  
+> **Status:** Fully Functional & Tested (54/54 Tests Passing)  
 > **Architectural Paradigm:** Multi-Cloud Storage • AI Copilot • Ransomware Shield • Disaster Recovery Center • Envelope Encryption  
 > **Compatibility:** Windows 10/11, macOS, Linux • Responsive Mobile/Tablet/Desktop PWA  
 
@@ -165,12 +165,12 @@ python -m pytest backend/tests/ -v
 ### Verified Test Matrix:
 | Test Suite | Tests | Status | Scope Tested |
 | :--- | :---: | :---: | :--- |
-| `test_ai_assistant.py` | 5 | **PASSED** | Read-only queries, token minting, anti-replay, hash-chain audit logging |
+| `test_ai_assistant.py` | 8 | **PASSED** | Read-only queries, token minting, anti-replay, hash-chain audit logging, milestone restore flow, offline LLM fallback |
 | `test_disaster_recovery.py` | 4 | **PASSED** | RPO/RTO calculation, synthetic drill sandbox, corruption detection, history |
 | `test_security_core.py` | 5 | **PASSED** | AES-256-GCM envelope roundtrip, corrupted ciphertext rejection, TOTP MFA, WORM lock |
-| `test_ransomware_detection.py` | 4 | **PASSED** | Shannon entropy math, false-positive protection, alert quarantine, auto-lock |
+| `test_ransomware_detection.py` | 14 | **PASSED** | Shannon entropy math, false-positive protection, extension detection, velocity bursts, deletion bursts, WORM preservation, reversible quarantine, AI queries |
 | `test_cloud_storage_adapters.py` | 4 | **PASSED** | Mock, AWS S3 adapter, Azure Blob adapter, multi-cloud inventory |
-| `test_predictive_analytics.py` | 3 | **PASSED** | Storage overview, growth forecast regression, 4-factor health score |
+| `test_predictive_analytics.py` | 6 | **PASSED** | Multi-cloud cost comparison, regression forecast, 4-factor health score, failure trends, optimization suggestions |
 | `test_pwa_and_frontend.py` | 6 | **PASSED** | Web app manifest, service worker security cache bypass, offline page, icons |
 | `test_events.py` | 1 | **PASSED** | Real-time event notifications & fallback polling |
 | `test_auth.py` | 1 | **PASSED** | Registration, bcrypt hashing, JWT issuance, duplicate checks |
@@ -179,7 +179,7 @@ python -m pytest backend/tests/ -v
 | `test_end_to_end_verification.py`| 1 | **PASSED** | Full 10-step complete platform lifecycle |
 | `test_storage_provider.py` | 1 | **PASSED** | Core storage provider upload/download/exists interface |
 | `test_api_integration.py` | 1 | **PASSED** | REST API backup flow |
-| **TOTAL** | **38** | **100% PASSED** | **Execution Duration: ~11.5 seconds** |
+| **TOTAL** | **54** | **100% PASSED** | **Execution Duration: ~9.5 seconds** |
 
 ---
 

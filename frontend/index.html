@@ -537,6 +537,66 @@ GCS_REGION=us-central1
                 </div>
             </div>
 
+            <!-- Multi-Cloud Pricing Comparison & Optimization Recommendations -->
+            <div class="grid-2col" style="margin-bottom:1.5rem;">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Multi-Cloud Storage Cost Comparison</h2>
+                    </div>
+                    <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">
+                        Side-by-side monthly cost estimation based on your current physical storage and deduplication savings.
+                    </p>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>Standard / Hot</th>
+                                    <th>Nearline / Cool</th>
+                                    <th>Archive / Deep</th>
+                                    <th>Saved via Dedup</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cloud-cost-table-body">
+                                <tr>
+                                    <td><strong>Google Cloud Storage</strong></td>
+                                    <td id="cost-gcs-std">$0.00</td>
+                                    <td id="cost-gcs-near">$0.00</td>
+                                    <td id="cost-gcs-arch">$0.00</td>
+                                    <td style="color:var(--success);font-weight:600;" id="cost-gcs-saved">$0.00</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Amazon S3</strong></td>
+                                    <td id="cost-aws-std">$0.00</td>
+                                    <td id="cost-aws-ia">$0.00</td>
+                                    <td id="cost-aws-arch">$0.00</td>
+                                    <td style="color:var(--success);font-weight:600;" id="cost-aws-saved">$0.00</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Azure Blob Storage</strong></td>
+                                    <td id="cost-az-hot">$0.00</td>
+                                    <td id="cost-az-cool">$0.00</td>
+                                    <td id="cost-az-arch">$0.00</td>
+                                    <td style="color:var(--success);font-weight:600;" id="cost-az-saved">$0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">AI Protection Recommendations</h2>
+                    </div>
+                    <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">
+                        Autonomous suggestions to improve resilience, optimize cadence, and recover health points.
+                    </p>
+                    <ul id="analytics-recommendations-list" style="list-style:none;padding:0;display:flex;flex-direction:column;gap:0.6rem;font-size:0.85rem;">
+                        <li style="color:var(--text-secondary);">Analyzing health metrics...</li>
+                    </ul>
+                </div>
+            </div>
+
             <!-- Top Largest Files -->
             <div class="card">
                 <div class="card-header">
