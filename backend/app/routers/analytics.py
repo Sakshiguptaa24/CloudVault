@@ -11,7 +11,9 @@ from backend.app.services.analytics_service import (
     get_top_large_files,
     calculate_backup_health_score,
     get_backup_failure_trends,
-    get_storage_optimization_suggestions
+    get_storage_optimization_suggestions,
+    get_folder_cadence_recommendations,
+    generate_weekly_report
 )
 from backend.app.ai.tools import tool_get_backup_recommendations
 
@@ -76,3 +78,19 @@ def storage_optimizations(
 ):
     """Retrieve data lifecycle, cold file tiering, and deduplication optimization suggestions."""
     return get_storage_optimization_suggestions(current_user.id, db)
+
+@router.get("/cadence-recommendations")
+def cadence_recommendations(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Analyze directory velocity and provide folder-specific backup schedule recommendations."""
+    return get_folder_cadence_recommendations(current_user.id, db)
+
+@router.get("/weekly-report")
+def weekly_report(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate executive weekly backup, security, and storage intelligence report."""
+    return generate_weekly_report(current_user.id, db)

@@ -241,6 +241,14 @@ class CloudVaultAPI {
         return await this.request("/api/v1/analytics/optimizations");
     }
 
+    async getWeeklyReport() {
+        return await this.request("/api/v1/analytics/weekly-report");
+    }
+
+    async getCadenceRecommendations() {
+        return await this.request("/api/v1/analytics/cadence-recommendations");
+    }
+
     // Multi-Cloud
     async getMultiClouds() {
         return await this.request("/api/v1/storage/clouds");

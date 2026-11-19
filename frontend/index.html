@@ -497,6 +497,30 @@ GCS_REGION=us-central1
                 </div>
             </div>
 
+            <!-- AI Health & Executive Actions Bar -->
+            <div class="card" style="margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+                <div>
+                    <h3 style="font-size:1.05rem;font-weight:600;margin-bottom:0.25rem;">Executive Backup Intelligence & Protection Health</h3>
+                    <p style="font-size:0.85rem;color:var(--text-secondary);margin:0;">
+                        Autonomous predictive insights, recovery telemetry, and statistical storage runway.
+                    </p>
+                </div>
+                <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+                    <button class="btn btn-primary btn-sm" id="btn-view-weekly-report" onclick="openWeeklyReportModal()">
+                        📋 Generate AI Weekly Report
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('backup-tab')">
+                        🚀 Trigger Backup
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dr-tab')">
+                        🚨 Verify DR Drill
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('security-tab')">
+                        🛡️ Security Center
+                    </button>
+                </div>
+            </div>
+
             <div class="grid-2col" style="margin-bottom:1.5rem;">
                 <!-- Storage Growth Forecast -->
                 <div class="card">
@@ -526,13 +550,54 @@ GCS_REGION=us-central1
                     </p>
                 </div>
 
-                <!-- Storage By File Type -->
+                <!-- 6-Factor Transparent Health Score Breakdown -->
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">Storage Breakdown by File Format</h2>
+                        <h2 class="card-title">Health Score Breakdown (6 Dimensions)</h2>
                     </div>
-                    <div id="file-types-breakdown-container" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.5rem;">
-                        <span style="font-size:0.85rem;color:var(--text-secondary);">Analyzing protected file extensions...</span>
+                    <div id="health-dimensions-container" style="display:flex;flex-direction:column;gap:0.65rem;margin-top:0.4rem;">
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.2rem;">
+                                <span>RPO Recency & Freshness</span>
+                                <strong id="score-dim-rpo">-- / 35</strong>
+                            </div>
+                            <div class="progress-bar-container"><div id="bar-dim-rpo" class="progress-bar-fill" style="width:0%;"></div></div>
+                        </div>
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.2rem;">
+                                <span>Job Reliability & Success</span>
+                                <strong id="score-dim-rel">-- / 25</strong>
+                            </div>
+                            <div class="progress-bar-container"><div id="bar-dim-rel" class="progress-bar-fill" style="width:0%;"></div></div>
+                        </div>
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.2rem;">
+                                <span>Security & Threat Shield</span>
+                                <strong id="score-dim-sec">-- / 15</strong>
+                            </div>
+                            <div class="progress-bar-container"><div id="bar-dim-sec" class="progress-bar-fill" style="width:0%;"></div></div>
+                        </div>
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.2rem;">
+                                <span>DR Drill & Restore Integrity</span>
+                                <strong id="score-dim-drill">-- / 10</strong>
+                            </div>
+                            <div class="progress-bar-container"><div id="bar-dim-drill" class="progress-bar-fill" style="width:0%;"></div></div>
+                        </div>
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.2rem;">
+                                <span>WORM Retention & Immutability</span>
+                                <strong id="score-dim-worm">-- / 5</strong>
+                            </div>
+                            <div class="progress-bar-container"><div id="bar-dim-worm" class="progress-bar-fill" style="width:0%;"></div></div>
+                        </div>
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.2rem;">
+                                <span>Coverage & Deduplication Ratio</span>
+                                <strong id="score-dim-dedup">-- / 10</strong>
+                            </div>
+                            <div class="progress-bar-container"><div id="bar-dim-dedup" class="progress-bar-fill" style="width:0%;"></div></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -594,6 +659,28 @@ GCS_REGION=us-central1
                     <ul id="analytics-recommendations-list" style="list-style:none;padding:0;display:flex;flex-direction:column;gap:0.6rem;font-size:0.85rem;">
                         <li style="color:var(--text-secondary);">Analyzing health metrics...</li>
                     </ul>
+                </div>
+            </div>
+
+            <!-- Activity & Failure Root Causes + File Types Breakdown -->
+            <div class="grid-2col" style="margin-bottom:1.5rem;">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Backup Failure Trends & Root Cause Diagnosis</h2>
+                    </div>
+                    <div id="failure-trends-container" style="font-size:0.85rem;color:var(--text-secondary);">
+                        Analyzing historical execution stability...
+                    </div>
+                </div>
+
+                <!-- Storage By File Type -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Storage Breakdown by File Format</h2>
+                    </div>
+                    <div id="file-types-breakdown-container" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.5rem;">
+                        <span style="font-size:0.85rem;color:var(--text-secondary);">Analyzing protected file extensions...</span>
+                    </div>
                 </div>
             </div>
 
@@ -757,6 +844,22 @@ GCS_REGION=us-central1
             <button id="confirm-restore-btn" class="btn btn-success" style="width:100%;margin-top:0.5rem;">
                 Confirm Restore
             </button>
+        </div>
+    </div>
+
+    <!-- AI Weekly Executive Report Modal -->
+    <div id="weekly-report-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="max-width:850px;max-height:88vh;overflow-y:auto;">
+            <div class="card-header" style="margin-bottom:1rem;">
+                <h2 class="card-title">📋 CloudVault Weekly Executive Protection Report</h2>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn btn-secondary btn-sm" id="btn-copy-weekly-report" onclick="copyWeeklyReport()">📋 Copy Markdown</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('weekly-report-modal').style.display='none'">✕ Close</button>
+                </div>
+            </div>
+            <div id="weekly-report-content" style="background:var(--bg-secondary);padding:1.25rem;border-radius:var(--radius);font-family:monospace;white-space:pre-wrap;font-size:0.85rem;line-height:1.5;">
+                Generating live weekly report...
+            </div>
         </div>
     </div>
 

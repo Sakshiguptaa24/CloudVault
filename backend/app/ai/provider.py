@@ -9,7 +9,7 @@ from urllib.error import URLError, HTTPError
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
-from backend.app.models import Snapshot
+from backend.app.models import Snapshot, BackupPlan, RansomwareAlert
 from backend.app.ai.tools import (
     tool_get_protected_files_summary,
     tool_get_recent_snapshots,
@@ -301,25 +301,172 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                 "action_card": None
             }
 
-        # 7. System Health Query
-        if any(w in p for w in ["health", "healthy", "system status", "backup system healthy"]):
+        # 7. System Health Query ("How healthy is my backup system?")
+        if any(w in p for w in ["health", "healthy", "how healthy", "system status", "backup system healthy", "health score"]):
             data = tool_check_system_health(user_id, db)
-            badge = "🟢" if data["health_status"] == "HEALTHY" else ("🟡" if data["health_status"] == "WARNING" else "🔴")
+            badge = "🟢" if data["health_status"] == "HEALTHY" or data["health_status"] == "EXCELLENT" else ("🟡" if data["health_status"] == "NEEDS_ATTENTION" or data["health_status"] == "WARNING" else "🔴")
+            
+            breakdown = data.get("breakdown", {})
+            recs = data.get("recommendations", [])
+            recs_text = "\n".join([f"- {r}" for r in recs[:3]]) if recs else "- All protection dimensions optimal."
+
             return {
                 "response": (
-                    f"### {badge} CloudVault Health Assessment\n\n"
+                    f"### {badge} CloudVault Backup Health Assessment\n\n"
                     f"- **Overall Health Score:** **{data['health_score']}/100** ({data['health_status']})\n"
-                    f"- **Latest Backup Point:** {data['latest_backup_time'] or 'Never'}\n"
-                    f"- **Recent Failed Jobs:** {data['recent_failures_count']}\n"
-                    f"- **Active Security Alerts:** {data['active_security_alerts_count']}\n\n"
-                    f"{'Your backup infrastructure is operating normally.' if data['health_score'] >= 80 else 'Attention recommended: review recent job failures or security alerts.'}"
+                    f"- **RPO Recency & Freshness:** {breakdown.get('rpo_score', 0)}/35 pts (Last snapshot: {data['latest_backup_time'] or 'Never'})\n"
+                    f"- **Job Reliability & Success:** {breakdown.get('job_reliability_score', 0)}/25 pts\n"
+                    f"- **Security & Ransomware Shield:** {breakdown.get('security_posture_score', 0)}/15 pts ({data['active_security_alerts_count']} alerts)\n"
+                    f"- **Snapshot Integrity & DR:** {breakdown.get('drill_integrity_score', 0)}/10 pts\n"
+                    f"- **Retention & WORM Protection:** {breakdown.get('retention_protection_score', 0)}/5 pts\n"
+                    f"- **Deduplication & Coverage:** {breakdown.get('dedup_efficiency_score', 0)}/10 pts\n\n"
+                    f"**Actionable Insights:**\n{recs_text}"
                     f"{self.FALLBACK_NOTICE}"
                 ),
                 "data": data,
                 "action_card": None
             }
 
-        # 8. Recommendations Query
+        # 8A. Weekly Executive Report Query ("Generate my weekly report")
+        if any(w in p for w in ["weekly report", "generate weekly report", "executive report", "weekly summary", "report for this week"]):
+            from backend.app.services.analytics_service import generate_weekly_report
+            report_data = generate_weekly_report(user_id, db)
+            return {
+                "response": report_data["markdown_report"] + self.FALLBACK_NOTICE,
+                "data": report_data,
+                "action_card": None
+            }
+
+        # 8B. Predictive Storage Forecast Query ("What is likely to happen to my storage over the next month?")
+        if any(w in p for w in ["likely to happen to my storage", "next month", "storage over the next month", "storage forecast", "future storage", "will my storage grow", "projected storage"]):
+            from backend.app.services.analytics_service import get_storage_forecast
+            forecast = get_storage_forecast(user_id, db, forecast_days=30)
+            proj = forecast.get("projections", {})
+            cur_mb = round(forecast["current_stored_bytes"] / (1024 * 1024), 2)
+            d7_mb = round(proj.get("day_7_bytes", forecast["current_stored_bytes"]) / (1024 * 1024), 2)
+            d14_mb = round(proj.get("day_14_bytes", forecast["current_stored_bytes"]) / (1024 * 1024), 2)
+            d30_mb = round(proj.get("day_30_bytes", forecast["projected_bytes_30d"]) / (1024 * 1024), 2)
+            daily_growth_kb = round(forecast["daily_growth_bytes"] / 1024, 1)
+
+            runway_str = f"Estimated **{forecast['days_to_quota']} days**" if forecast.get("days_to_quota") is not None else "Unlimited runway (under quota threshold)"
+
+            return {
+                "response": (
+                    f"### 🔮 Predictive 30-Day Storage Consumption Outlook\n\n"
+                    f"*Statistical forecast calculated using linear regression; not an actual measurement.*\n\n"
+                    f"- **Current Cloud Footprint:** **{cur_mb} MB**\n"
+                    f"- **Daily Growth Velocity:** **+{daily_growth_kb} KB/day**\n"
+                    f"- **+7 Days Projected:** {d7_mb} MB\n"
+                    f"- **+14 Days Projected:** {d14_mb} MB\n"
+                    f"- **+30 Days Projected:** **{d30_mb} MB**\n"
+                    f"- **Time Until Storage Limit:** {runway_str}\n"
+                    f"- **Forecast Model & Confidence:** `{forecast.get('growth_model', 'baseline')}` (Confidence: **{forecast.get('forecast_confidence', 'Normal')}**)\n\n"
+                    f"Deduplication and incremental change detection ensure unmodified files do not consume additional cloud storage space."
+                    f"{self.FALLBACK_NOTICE}"
+                ),
+                "data": forecast,
+                "action_card": None
+            }
+
+        # 8C. Folder Cadence Recommendations ("Which folders need more frequent backups?")
+        if any(w in p for w in ["which folders need", "folders need more frequent", "more frequent backups", "folder cadence", "which folders", "frequency recommendations"]):
+            from backend.app.services.analytics_service import get_folder_cadence_recommendations
+            cadence_data = get_folder_cadence_recommendations(user_id, db)
+            folders = cadence_data.get("folder_recommendations", [])
+            if not folders:
+                return {
+                    "response": (
+                        "### 📁 Folder Cadence Analysis\n\n"
+                        "No active backup plan source folders are configured. Create a backup plan to start tracking file modification velocity."
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
+                    "data": cadence_data,
+                    "action_card": None
+                }
+
+            lines = ["### 📁 Data-Grounded Folder Cadence Recommendations\n"]
+            for f in folders:
+                lines.append(f"- **`{f['directory_path']}`** ({f['plan_name']}):")
+                lines.append(f"  * **Recommended Schedule:** **{f['recommended_schedule']}** (Current: `{f.get('current_schedule_type', 'manual')}`)")
+                lines.append(f"  * **Justification:** {f['reason']}")
+            lines.append("\n*To apply an updated schedule, adjust the interval or cron in the **Scheduler** tab.*")
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": cadence_data,
+                "action_card": None
+            }
+
+        # 8D. Prioritized Remediation ("What should I fix first?")
+        if any(w in p for w in ["what should i fix first", "fix first", "what to fix first", "top priority", "priorities", "what needs attention"]):
+            from backend.app.services.analytics_service import generate_weekly_report
+            rep = generate_weekly_report(user_id, db)
+            actions = rep.get("prioritized_actions", [])
+
+            lines = ["### 🎯 Prioritized System Action Plan\n", "Ranked in order of critical impact:\n"]
+            for idx, a in enumerate(actions, 1):
+                lines.append(f"**{idx}. [{a['priority']}] {a['title']}**\n   {a['action']}\n")
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": rep,
+                "action_card": None
+            }
+
+        # 8E. Storage Usage Changes ("How has my storage usage changed?")
+        if any(w in p for w in ["how has my storage usage changed", "storage usage changed", "storage changed", "storage delta", "how has my storage"]):
+            from backend.app.services.analytics_service import get_analytics_overview, generate_weekly_report
+            rep = generate_weekly_report(user_id, db)
+            sc = rep.get("storage_changes", {})
+            delta_mb = round(sc.get("storage_delta_7d_bytes", 0) / (1024 * 1024), 2)
+            cur_mb = round(sc.get("physical_stored_bytes", 0) / (1024 * 1024), 2)
+            saved_mb = round(sc.get("bytes_saved", 0) / (1024 * 1024), 2)
+
+            return {
+                "response": (
+                    f"### 📈 Storage Evolution Analysis\n\n"
+                    f"- **Current Physical Stored:** **{cur_mb} MB**\n"
+                    f"- **7-Day Net Storage Change:** **{('+' if delta_mb >= 0 else '')}{delta_mb} MB**\n"
+                    f"- **Bandwidth Saved via Deduplication:** **{saved_mb} MB** ({sc.get('deduplication_ratio', 1.0)}x multiplier)\n"
+                    f"- **Estimated Monthly Cloud Cost:** **${sc.get('estimated_monthly_cost_usd', 0.0)}/mo**\n\n"
+                    f"Incremental delta block chunking and zero-byte deduplication ensure only modified data consumes additional cloud quota."
+                    f"{self.FALLBACK_NOTICE}"
+                ),
+                "data": sc,
+                "action_card": None
+            }
+
+        # 8F. Security Risks to Address ("What security risks should I address?")
+        if any(w in p for w in ["what security risks", "security risks should i address", "security risks", "vulnerabilities to address"]):
+            active_alerts = db.query(RansomwareAlert).filter(RansomwareAlert.user_id == user_id, RansomwareAlert.status == "ACTIVE").count()
+            unencrypted_plans = db.query(BackupPlan).filter(BackupPlan.user_id == user_id, BackupPlan.encryption_enabled == False).count()
+            unlocked_snaps = db.query(Snapshot).filter(Snapshot.user_id == user_id, Snapshot.is_locked == False).count()
+
+            lines = ["### 🛡️ Security Risk Assessment & Hardening\n"]
+            if active_alerts > 0:
+                lines.append(f"1. **🚨 Active Ransomware Alerts:** **{active_alerts} alert(s)** pending resolution in the Security Center.")
+            else:
+                lines.append("1. **✅ Ransomware Shield:** 0 active threats detected. Real-time Shannon entropy filtering active.")
+
+            if unencrypted_plans > 0:
+                lines.append(f"2. **⚠️ Plaintext Plans:** {unencrypted_plans} backup plan(s) have AES-256-GCM encryption disabled. Enable zero-trust encryption.")
+            else:
+                lines.append("2. **✅ Encryption:** All backup plans have AES-256-GCM envelope encryption enabled.")
+
+            if unlocked_snaps > 0:
+                lines.append(f"3. **ℹ️ Snapshot Immutability:** {unlocked_snaps} snapshot(s) lack WORM retention locks. Locking clean snapshots prevents ransomware deletion.")
+            else:
+                lines.append("3. **✅ Retention:** Key baseline snapshots are protected with WORM retention locks.")
+
+            lines.append("\n*Navigate to the **Security & Ransomware Shield** tab to manage active protections.*")
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"active_alerts": active_alerts, "unencrypted_plans": unencrypted_plans, "unlocked_snapshots": unlocked_snaps},
+                "action_card": None
+            }
+
+        # 8G. General Recommendations Query
         if any(w in p for w in ["recommend", "improve", "advice", "suggestion", "best practice", "improve my backup protection"]):
             data = tool_get_backup_recommendations(user_id, db)
             recs = data["recommendations"]

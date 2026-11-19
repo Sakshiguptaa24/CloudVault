@@ -1118,6 +1118,64 @@ async function loadAnalytics() {
         if (scoreEl) scoreEl.textContent = `${health.health_score || health.score || 0} / 100`;
         if (ratingEl) ratingEl.textContent = `${health.rating || health.status || 'Active'} • ${(health.recommendations && health.recommendations[0]) || 'System Healthy'}`;
 
+        // 6 Health Dimensions Breakdown
+        const bd = health.breakdown || {};
+        const setDim = (dimId, score, max) => {
+            const labelEl = document.getElementById(`score-dim-${dimId}`);
+            const barEl = document.getElementById(`bar-dim-${dimId}`);
+            if (labelEl) labelEl.textContent = `${score} / ${max}`;
+            if (barEl) barEl.style.width = `${Math.min(100, Math.round((score / max) * 100))}%`;
+        };
+        setDim("rpo", bd.rpo_score ?? 0, 35);
+        setDim("rel", bd.job_reliability_score ?? 0, 25);
+        setDim("sec", bd.security_posture_score ?? 0, 15);
+        setDim("drill", bd.drill_integrity_score ?? 0, 10);
+        setDim("worm", bd.retention_protection_score ?? 0, 5);
+        setDim("dedup", bd.dedup_efficiency_score ?? 0, 10);
+
+        // Load Failure Trends & Root Cause Diagnosis
+        try {
+            const trends = await api.getFailureTrends(14);
+            const failContainer = document.getElementById("failure-trends-container");
+            if (failContainer) {
+                if (!trends || trends.total_jobs === 0) {
+                    failContainer.innerHTML = "<span style='color:var(--text-secondary);'>No backup executions recorded in the past 14 days.</span>";
+                } else if (trends.failed_jobs === 0) {
+                    failContainer.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:rgba(34,197,94,0.1);border-radius:var(--radius);color:var(--success);">
+                            <span style="font-size:1.5rem;">✅</span>
+                            <div>
+                                <strong>100% Execution Success Rate</strong>
+                                <div style="font-size:0.8rem;color:var(--text-secondary);">${trends.total_jobs} total executions over the past 14 days with zero failures.</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    let html = `
+                        <div style="margin-bottom:0.75rem;font-size:0.85rem;">
+                            <strong>Execution Stability:</strong> ${trends.success_rate_percentage}% success (${trends.failed_jobs} failed out of ${trends.total_jobs} jobs)
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                    `;
+                    (trends.root_cause_analysis || []).forEach(rc => {
+                        html += `
+                            <div style="padding:0.5rem;background:var(--bg-secondary);border-radius:var(--radius);font-size:0.8rem;">
+                                <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
+                                    <strong style="color:var(--danger);">${rc.category}</strong>
+                                    <span>${rc.count} failure(s) (${rc.percentage}%)</span>
+                                </div>
+                                <div style="color:var(--text-secondary);font-size:0.78rem;">${rc.remediation}</div>
+                            </div>
+                        `;
+                    });
+                    html += "</div>";
+                    failContainer.innerHTML = html;
+                }
+            }
+        } catch (trendErr) {
+            console.warn("Could not load failure trends:", trendErr);
+        }
+
         // Deduplication & Cost
         const dedupEl = document.getElementById("ai-dedup-multiplier");
         const dedupPctEl = document.getElementById("ai-dedup-pct");
@@ -1263,6 +1321,33 @@ async function loadAnalytics() {
         console.error("Predictive Analytics load error:", err);
         showToast("Could not load analytics: " + err.message, "error");
     }
+}
+
+// AI Weekly Executive Report Controller
+let currentWeeklyReportMarkdown = "";
+
+async function openWeeklyReportModal() {
+    const modal = document.getElementById("weekly-report-modal");
+    const contentEl = document.getElementById("weekly-report-content");
+    if (modal) modal.style.display = "flex";
+    if (contentEl) contentEl.textContent = "Compiling live weekly intelligence report from database telemetry...";
+
+    try {
+        const report = await api.getWeeklyReport();
+        currentWeeklyReportMarkdown = report.markdown_report || "";
+        if (contentEl) contentEl.textContent = currentWeeklyReportMarkdown;
+    } catch (err) {
+        if (contentEl) contentEl.textContent = "Error compiling weekly report: " + err.message;
+    }
+}
+
+function copyWeeklyReport() {
+    if (!currentWeeklyReportMarkdown) return;
+    navigator.clipboard.writeText(currentWeeklyReportMarkdown).then(() => {
+        showToast("Weekly report copied to clipboard!", "success");
+    }).catch(() => {
+        showToast("Could not access clipboard", "error");
+    });
 }
 
 // 4. Visual File Version Timeline Scrubber

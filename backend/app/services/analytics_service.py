@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.app.models import (
-    User, BackupPlan, Snapshot, SnapshotFile, StorageObject, BackupJob, RansomwareAlert
+    User, BackupPlan, Snapshot, SnapshotFile, StorageObject, BackupJob, RansomwareAlert, DRDrill
 )
 
 # Standard Cloud Storage Pricing references ($/GB/month)
@@ -172,6 +172,8 @@ def get_storage_forecast(user_id: str, db: Session, forecast_days: int = 30) -> 
         return {
             "status": "baseline_estimate",
             "message": "Insufficient historical snapshots (minimum 2 required) for dynamic growth modeling. Providing baseline estimate.",
+            "is_prediction": True,
+            "prediction_disclaimer": "Statistical forecast based on baseline historical snapshots; not an actual measurement.",
             "current_stored_bytes": current_stored,
             "daily_growth_bytes": 0,
             "forecast_days": forecast_days,
@@ -250,6 +252,8 @@ def get_storage_forecast(user_id: str, db: Session, forecast_days: int = 30) -> 
 
     return {
         "status": "calculated",
+        "is_prediction": True,
+        "prediction_disclaimer": "Statistical forecast calculated using linear regression modeling over historical snapshots; not an actual measurement.",
         "current_stored_bytes": current_stored,
         "daily_growth_bytes": int(daily_growth),
         "forecast_days": forecast_days,
@@ -294,16 +298,18 @@ def get_top_large_files(user_id: str, db: Session, limit: int = 10) -> List[Dict
 
 def calculate_backup_health_score(user_id: str, db: Session) -> Dict[str, Any]:
     """
-    Calculate unified, multi-dimensional Backup Health Score (0 - 100):
-    1. RPO Recency: Up to 35 pts (freshness of latest snapshot)
-    2. Job Reliability & Success: Up to 30 pts (success rate of jobs over 14 days)
-    3. Security & Ransomware Shield: Up to 20 pts (zero active anomalies/alerts)
-    4. Deduplication & Storage Efficiency: Up to 15 pts (space optimization ratio)
+    Calculate unified, transparent, multi-dimensional Backup Health Score (0 - 100):
+    1. RPO Recency & Freshness: Up to 35 pts (freshness of latest snapshot)
+    2. Job Reliability & Success: Up to 25 pts (success rate of jobs over 14 days)
+    3. Security & Ransomware Shield: Up to 15 pts (zero active anomalies/alerts)
+    4. Snapshot Integrity & Recovery Drill: Up to 10 pts (synthetic drill pass status)
+    5. Retention Protection & Immutability: Up to 5 pts (WORM locked snapshots)
+    6. Coverage & Deduplication Efficiency: Up to 10 pts (space optimization ratio)
     """
     latest_snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
     recs = []
 
-    # 1. RPO Recency Points (Max 35)
+    # 1. RPO Recency & Freshness (Max 35)
     rpo_points = 0
     hours_since = None
     if latest_snap:
@@ -314,7 +320,7 @@ def calculate_backup_health_score(user_id: str, db: Session) -> Dict[str, Any]:
             rpo_points = 30
         elif hours_since <= 48:
             rpo_points = 20
-            recs.append("Last snapshot was taken over 24 hours ago. Trigger a backup to improve RPO.")
+            recs.append("Last snapshot was taken over 24 hours ago. Trigger a backup to improve RPO freshness.")
         elif hours_since <= 168:
             rpo_points = 10
             recs.append("Last snapshot is several days old (>48h). Automated daily schedules are advised.")
@@ -324,52 +330,77 @@ def calculate_backup_health_score(user_id: str, db: Session) -> Dict[str, Any]:
     else:
         recs.append("No snapshots recorded yet. Create an active backup plan and take an initial snapshot.")
 
-    # 2. Job Reliability Points (Max 30)
+    # 2. Job Reliability & Success Rate (Max 25)
     recent_jobs = db.query(BackupJob).filter(
         BackupJob.user_id == user_id,
         BackupJob.started_at >= datetime.utcnow() - timedelta(days=14)
     ).all()
     if not recent_jobs:
-        job_points = 25
+        job_points = 20
         success_rate = 100.0
     else:
         success_count = sum(1 for j in recent_jobs if j.status == "SUCCESS")
         success_rate = round((success_count / len(recent_jobs)) * 100, 1)
-        job_points = int((success_rate / 100.0) * 30)
+        job_points = int((success_rate / 100.0) * 25)
         if success_rate < 80.0:
             failed_count = len(recent_jobs) - success_count
             recs.append(f"{failed_count} backup job(s) failed recently ({success_rate}% success). Inspect failure trends.")
 
-    # 3. Security & Ransomware Shield Points (Max 20)
+    # 3. Security & Ransomware Shield (Max 15)
     active_alerts = db.query(RansomwareAlert).filter(
         RansomwareAlert.user_id == user_id,
         RansomwareAlert.status == "ACTIVE"
     ).count()
 
     if active_alerts == 0:
-        security_points = 20
+        security_points = 15
     elif active_alerts == 1:
-        security_points = 8
+        security_points = 6
         recs.append("1 active ransomware alert requires investigation in the Security Center.")
     else:
         security_points = 0
         recs.append(f"{active_alerts} active security anomalies detected! Clean snapshots are protected; resolve alerts.")
 
-    # 4. Storage Deduplication Efficiency Points (Max 15)
+    # 4. Snapshot Integrity & Recovery Drill (Max 10)
+    latest_drill = db.query(DRDrill).filter(DRDrill.user_id == user_id).order_by(DRDrill.created_at.desc()).first()
+    if latest_drill:
+        if latest_drill.status == "PASSED":
+            drill_points = 10
+        else:
+            drill_points = 0
+            recs.append("Latest synthetic disaster recovery drill failed! Snapshot data may have corrupted blocks.")
+    elif latest_snap:
+        drill_points = 5
+        recs.append("No recovery verification drills executed yet. Run a synthetic DR drill to verify restore integrity.")
+    else:
+        drill_points = 0
+
+    # 5. Retention Protection & Immutability (Max 5)
+    locked_count = db.query(Snapshot).filter(
+        Snapshot.user_id == user_id,
+        (Snapshot.is_locked == True) | (Snapshot.is_immutable == True)
+    ).count()
+    if locked_count > 0:
+        retention_points = 5
+    elif latest_snap:
+        retention_points = 2
+        recs.append("No snapshots are locked under WORM immutable retention. Lock key snapshots against deletion.")
+    else:
+        retention_points = 0
+
+    # 6. Deduplication & Coverage Efficiency (Max 10)
     overview = get_analytics_overview(user_id, db)
     dedup_ratio = overview["deduplication_ratio"]
-    if dedup_ratio >= 2.0:
-        dedup_points = 15
-    elif dedup_ratio >= 1.5:
-        dedup_points = 12
+    if dedup_ratio >= 1.5:
+        dedup_points = 10
     elif dedup_ratio >= 1.2:
-        dedup_points = 9
+        dedup_points = 8
     elif dedup_ratio >= 1.0:
         dedup_points = 5
     else:
         dedup_points = 2
 
-    total_score = rpo_points + job_points + security_points + dedup_points
+    total_score = rpo_points + job_points + security_points + drill_points + retention_points + dedup_points
     total_score = max(0, min(100, total_score))
 
     status = (
@@ -391,6 +422,8 @@ def calculate_backup_health_score(user_id: str, db: Session) -> Dict[str, Any]:
             "rpo_score": rpo_points,
             "job_reliability_score": job_points,
             "security_posture_score": security_points,
+            "drill_integrity_score": drill_points,
+            "retention_protection_score": retention_points,
             "dedup_efficiency_score": dedup_points
         },
         "components": {
@@ -400,6 +433,10 @@ def calculate_backup_health_score(user_id: str, db: Session) -> Dict[str, Any]:
             "recent_job_success_rate": success_rate,
             "security_shield_score": security_points,
             "active_security_alerts": active_alerts,
+            "drill_integrity_score": drill_points,
+            "latest_drill_status": latest_drill.status if latest_drill else "NEVER_RUN",
+            "retention_protection_score": retention_points,
+            "worm_locked_snapshots_count": locked_count,
             "deduplication_score": dedup_points,
             "deduplication_ratio": dedup_ratio
         }
@@ -574,4 +611,299 @@ def get_storage_optimization_suggestions(user_id: str, db: Session) -> Dict[str,
         "total_suggestions": len(suggestions),
         "suggestions": suggestions,
         "cold_data_summary": cold_summary
+    }
+
+
+
+def get_folder_cadence_recommendations(user_id: str, db: Session) -> Dict[str, Any]:
+    """
+    Analyze file modification frequency and backup plan schedules across configured source directories.
+    Provides data-grounded backup frequency recommendations for each directory.
+    """
+    import json
+    plans = db.query(BackupPlan).filter(BackupPlan.user_id == user_id, BackupPlan.is_active == True).all()
+    results = []
+
+    for plan in plans:
+        try:
+            dirs = json.loads(plan.source_directories)
+        except Exception:
+            dirs = []
+
+        latest_snap = db.query(Snapshot).filter(Snapshot.plan_id == plan.id).order_by(Snapshot.created_at.desc()).first()
+        last_backup_time = latest_snap.created_at.isoformat() if latest_snap else None
+
+        for d in dirs:
+            if not os.path.exists(d):
+                results.append({
+                    "plan_name": plan.plan_name,
+                    "directory_path": d,
+                    "status": "MISSING",
+                    "files_count": 0,
+                    "recent_modifications_24h": 0,
+                    "current_schedule_type": plan.schedule_type,
+                    "recommended_schedule": "Fix Directory Path",
+                    "reason": f"Configured source path '{d}' does not exist on disk."
+                })
+                continue
+
+            file_count = 0
+            recent_mod_count = 0
+            twenty_four_hrs_ago = (datetime.utcnow() - timedelta(hours=24)).timestamp()
+
+            for root, _, files in os.walk(d):
+                for f in files:
+                    file_count += 1
+                    try:
+                        mtime = os.path.getmtime(os.path.join(root, f))
+                        if mtime >= twenty_four_hrs_ago:
+                            recent_mod_count += 1
+                    except Exception:
+                        pass
+
+            if recent_mod_count >= 20:
+                rec_cadence = "Hourly or Continuous"
+                reason = f"High file velocity detected ({recent_mod_count} files modified in past 24h). Hourly cadence minimizes RPO data loss."
+            elif recent_mod_count >= 5 or file_count > 100:
+                rec_cadence = "Daily"
+                reason = f"Moderate change velocity ({recent_mod_count} recent edits across {file_count} files). Daily scheduled backup balances protection and efficiency."
+            else:
+                rec_cadence = "Weekly or Manual"
+                reason = f"Low modification rate ({recent_mod_count} recent changes). Weekly intervals conserve network bandwidth and cloud storage costs."
+
+            results.append({
+                "plan_name": plan.plan_name,
+                "directory_path": d,
+                "status": "ACTIVE",
+                "files_count": file_count,
+                "recent_modifications_24h": recent_mod_count,
+                "current_schedule_type": plan.schedule_type,
+                "recommended_schedule": rec_cadence,
+                "last_backup_time": last_backup_time,
+                "reason": reason
+            })
+
+    return {
+        "status": "success",
+        "total_directories_analyzed": len(results),
+        "folder_recommendations": results
+    }
+
+
+def generate_weekly_report(user_id: str, db: Session) -> Dict[str, Any]:
+    """
+    Generate comprehensive weekly backup, cyber-resilience, and storage intelligence report.
+    Grounded in actual database activity from the past 7 days.
+    """
+    now = datetime.utcnow()
+    since = now - timedelta(days=7)
+    user = db.query(User).filter(User.id == user_id).first()
+    user_email = user.email if user else "user@cloudvault.internal"
+
+    # 1. Backup Activity in Past 7 Days
+    jobs_7d = db.query(BackupJob).filter(
+        BackupJob.user_id == user_id,
+        BackupJob.started_at >= since
+    ).order_by(BackupJob.started_at.desc()).all()
+
+    total_jobs_7d = len(jobs_7d)
+    success_jobs_7d = sum(1 for j in jobs_7d if j.status == "SUCCESS")
+    failed_jobs_7d = [j for j in jobs_7d if j.status == "FAILED"]
+    success_rate_7d = round((success_jobs_7d / total_jobs_7d) * 100, 1) if total_jobs_7d > 0 else 100.0
+
+    new_snapshots_count = db.query(Snapshot).filter(
+        Snapshot.user_id == user_id,
+        Snapshot.created_at >= since
+    ).count()
+
+    total_snapshots_count = db.query(Snapshot).filter(Snapshot.user_id == user_id).count()
+    active_plans_count = db.query(BackupPlan).filter(BackupPlan.user_id == user_id, BackupPlan.is_active == True).count()
+
+    # 2. Storage Overview & Delta
+    overview = get_analytics_overview(user_id, db)
+    physical_stored = overview["physical_stored_bytes"]
+    logical_protected = overview["logical_uncompressed_bytes"]
+    saved_bytes = overview["bytes_saved"]
+    dedup_ratio = overview["deduplication_ratio"]
+    est_monthly_cost = overview["cost_estimation"]["estimated_monthly_cost_usd"]
+
+    # Storage delta over 7 days
+    snaps_chron = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.asc()).all()
+    if len(snaps_chron) >= 2:
+        oldest_stored = snaps_chron[0].total_stored_bytes
+        latest_stored = snaps_chron[-1].total_stored_bytes
+        storage_delta_bytes = latest_stored - oldest_stored
+    else:
+        storage_delta_bytes = 0
+
+    # 3. Security & Ransomware Shield
+    active_alerts_count = db.query(RansomwareAlert).filter(
+        RansomwareAlert.user_id == user_id,
+        RansomwareAlert.status == "ACTIVE"
+    ).count()
+
+    locked_snapshots_count = db.query(Snapshot).filter(
+        Snapshot.user_id == user_id,
+        (Snapshot.is_locked == True) | (Snapshot.is_immutable == True)
+    ).count()
+
+    shield_status = (
+        "CRITICAL (Active Threat Detected)" if active_alerts_count > 1
+        else ("WARNING (1 Alert Pending)" if active_alerts_count == 1 else "OPTIMAL (Clean Shield)")
+    )
+
+    # 4. Disaster Recovery Readiness
+    latest_drill = db.query(DRDrill).filter(DRDrill.user_id == user_id).order_by(DRDrill.created_at.desc()).first()
+    latest_snap = snaps_chron[-1] if snaps_chron else None
+    rpo_hours = round((now - latest_snap.created_at).total_seconds() / 3600, 1) if latest_snap else None
+
+    drill_status = latest_drill.status if latest_drill else "NOT_PERFORMED"
+    drill_tested_files = latest_drill.files_tested if latest_drill else 0
+    est_rto = (
+        latest_drill.estimated_rto_minutes if latest_drill
+        else (round((physical_stored / (50 * 1024 * 1024)) / 60, 1) if physical_stored > 0 else 1.0)
+    )
+
+    # 5. Predictive 30-Day Outlook
+    forecast = get_storage_forecast(user_id, db, 30)
+
+    # 6. Overall Health Score
+    health = calculate_backup_health_score(user_id, db)
+
+    # 7. Prioritized Action Plan
+    prioritized_actions = []
+    if active_alerts_count > 0:
+        prioritized_actions.append({
+            "priority": "P1 (Critical)",
+            "title": "Resolve Active Security Threat",
+            "action": f"Address {active_alerts_count} ransomware alert(s) in the Security Center to unblock clean operations."
+        })
+    if len(failed_jobs_7d) > 0:
+        prioritized_actions.append({
+            "priority": "P2 (High)",
+            "title": "Remediate Failed Backup Executions",
+            "action": f"{len(failed_jobs_7d)} job(s) failed recently. Review failure trends and resolve root causes."
+        })
+    if rpo_hours is None or rpo_hours > 24:
+        prioritized_actions.append({
+            "priority": "P2 (High)",
+            "title": "Refresh Stale Backup Snapshot",
+            "action": f"Last backup was {rpo_hours or 'never'} hours ago. Run an on-demand backup to capture recent edits."
+        })
+    if not latest_drill or latest_drill.status != "PASSED":
+        prioritized_actions.append({
+            "priority": "P3 (Medium)",
+            "title": "Verify Disaster Recovery Readiness",
+            "action": "Run a synthetic recovery drill to confirm bit-level SHA-256 restore integrity."
+        })
+    if locked_snapshots_count == 0 and total_snapshots_count > 0:
+        prioritized_actions.append({
+            "priority": "P4 (Low)",
+            "title": "Enable WORM Snapshot Immutability",
+            "action": "Lock at least one clean baseline snapshot under retention to prevent tampering."
+        })
+    if not prioritized_actions:
+        prioritized_actions.append({
+            "priority": "OPTIMAL",
+            "title": "Maintain Current Protection Policy",
+            "action": "All backup, storage, security, and DR metrics are operating in peak condition."
+        })
+
+    # Render Markdown Report
+    since_str = since.strftime("%Y-%m-%d")
+    now_str = now.strftime("%Y-%m-%d")
+    phys_mb = round(physical_stored / (1024 * 1024), 2)
+    logic_mb = round(logical_protected / (1024 * 1024), 2)
+    delta_mb = round(storage_delta_bytes / (1024 * 1024), 2)
+    saved_mb = round(saved_bytes / (1024 * 1024), 2)
+    daily_mb = round(forecast["daily_growth_bytes"] / (1024 * 1024), 2)
+    proj_30d_mb = round(forecast["projected_bytes_30d"] / (1024 * 1024), 2)
+
+    lines = [
+        f"## 📋 CloudVault Weekly Executive Backup & Health Report",
+        f"**Audit Period:** `{since_str}` to `{now_str}`",
+        f"**Account Owner:** `{user_email}` | **Overall Health:** **{health['score']}/100** ({health['status']})\n",
+        f"---",
+        f"### 1. 📊 Storage & Protection Summary",
+        f"- **Logical Data Protected:** {logic_mb} MB across {total_snapshots_count} snapshot(s)",
+        f"- **Physical Stored in Cloud:** {phys_mb} MB (Deduplication Multiplier: **{dedup_ratio}x**)",
+        f"- **7-Day Net Storage Delta:** {('+' if delta_mb >= 0 else '')}{delta_mb} MB",
+        f"- **Bandwidth & Space Saved:** **{saved_mb} MB** ({overview['deduplication']['space_saved_percentage']}% saved)",
+        f"- **Estimated Cloud Cost:** **${est_monthly_cost}/mo**\n",
+        f"### 2. ⚡ Backup Execution & Reliability (Past 7 Days)",
+        f"- **Total Executions:** {total_jobs_7d} | **Success Rate:** **{success_rate_7d}%**",
+        f"- **Successful:** {success_jobs_7d} | **Failed:** {len(failed_jobs_7d)}",
+        f"- **New Snapshots Landed:** {new_snapshots_count}\n",
+        f"### 3. 🛡️ Security & Cyber-Resilience",
+        f"- **Shield Status:** {shield_status}",
+        f"- **Active Anomalies:** {active_alerts_count}",
+        f"- **WORM Immutable Snapshots:** {locked_snapshots_count} protected against tampering\n",
+        f"### 4. 🚨 Disaster Recovery Readiness",
+        f"- **Recovery Point Objective (RPO):** {rpo_hours or 'N/A'} hours since last clean backup",
+        f"- **Synthetic DR Drill Status:** `{drill_status}` ({drill_tested_files} files verified)",
+        f"- **Estimated Recovery Time Objective (RTO):** ~{est_rto} minutes\n",
+        f"### 5. 🔮 30-Day Predictive Storage Outlook",
+        f"*Notice: Statistical forecast calculated using linear regression modeling; not an actual measurement.*",
+        f"- **Estimated Daily Velocity:** +{daily_mb} MB/day",
+        f"- **Projected Storage (30d):** **{proj_30d_mb} MB**",
+        f"- **Runway to Quota:** {forecast['days_to_quota'] if forecast['days_to_quota'] is not None else 'Unlimited headroom'}",
+        f"- **Model Confidence:** {forecast['forecast_confidence']}\n",
+        f"### 6. 💡 Prioritized Recommendations",
+    ]
+
+    for a in prioritized_actions:
+        lines.append(f"- **[{a['priority']}] {a['title']}:** {a['action']}")
+
+    lines.append("\n*(⚡ Report compiled from actual CloudVault authenticated telemetry)*")
+    markdown_report = "\n".join(lines)
+
+    return {
+        "status": "success",
+        "generated_at": now.isoformat(),
+        "period": {
+            "since": since.isoformat(),
+            "until": now.isoformat(),
+            "days": 7
+        },
+        "user_email": user_email,
+        "health_score": health["score"],
+        "health_status": health["status"],
+        "health_breakdown": health["breakdown"],
+        "backup_activity": {
+            "total_jobs_7d": total_jobs_7d,
+            "success_jobs_7d": success_jobs_7d,
+            "failed_jobs_7d": len(failed_jobs_7d),
+            "success_rate_7d": success_rate_7d,
+            "new_snapshots_count": new_snapshots_count,
+            "total_snapshots_count": total_snapshots_count
+        },
+        "storage_changes": {
+            "physical_stored_bytes": physical_stored,
+            "logical_uncompressed_bytes": logical_protected,
+            "bytes_saved": saved_bytes,
+            "deduplication_ratio": dedup_ratio,
+            "storage_delta_7d_bytes": storage_delta_bytes,
+            "estimated_monthly_cost_usd": est_monthly_cost
+        },
+        "security_posture": {
+            "shield_status": shield_status,
+            "active_alerts_count": active_alerts_count,
+            "worm_locked_snapshots_count": locked_snapshots_count
+        },
+        "disaster_recovery": {
+            "rpo_hours": rpo_hours,
+            "drill_status": drill_status,
+            "drill_tested_files": drill_tested_files,
+            "estimated_rto_minutes": est_rto
+        },
+        "predictive_outlook": {
+            "is_prediction": True,
+            "daily_growth_bytes": forecast["daily_growth_bytes"],
+            "projected_bytes_30d": forecast["projected_bytes_30d"],
+            "days_to_quota": forecast["days_to_quota"],
+            "forecast_confidence": forecast["forecast_confidence"],
+            "notice": "Statistical forecast based on historical linear velocity; not an actual measurement."
+        },
+        "prioritized_actions": prioritized_actions,
+        "markdown_report": markdown_report
     }
