@@ -176,13 +176,39 @@ class CloudVaultAPI {
     }
 
     // Security & Ransomware
+    async getSecurityHealth() {
+        return await this.request("/api/v1/security/health");
+    }
+
     async getSecurityAlerts(status = "ACTIVE") {
         return await this.request(`/api/v1/security/alerts?status=${status}`);
     }
 
-    async dismissSecurityAlert(alertId) {
+    async dismissSecurityAlert(alertId, resolutionNotes = "Verified false positive") {
         return await this.request(`/api/v1/security/alerts/${alertId}/dismiss`, {
-            method: "POST"
+            method: "POST",
+            body: JSON.stringify({ resolution_notes: resolutionNotes })
+        });
+    }
+
+    async resolveSecurityAlert(alertId, resolutionNotes = "Threat resolved", unquarantine = true) {
+        return await this.request(`/api/v1/security/alerts/${alertId}/resolve`, {
+            method: "POST",
+            body: JSON.stringify({ resolution_notes: resolutionNotes, unquarantine_snapshots: unquarantine })
+        });
+    }
+
+    async simulateAttack(scenarioType = "mass_encryption") {
+        return await this.request("/api/v1/security/simulate-test", {
+            method: "POST",
+            body: JSON.stringify({ scenario_type: scenarioType })
+        });
+    }
+
+    async analyzeSecurityPath(planId = null, targetDirectory = null) {
+        return await this.request("/api/v1/security/analyze-path", {
+            method: "POST",
+            body: JSON.stringify({ plan_id: planId, target_directory: targetDirectory })
         });
     }
 

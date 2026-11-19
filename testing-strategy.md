@@ -1,8 +1,8 @@
 # CloudVault 2.0: Quality Assurance & Testing Strategy
 **Project:** CloudVault 2.0 – Intelligent Cloud Backup, Security & Disaster Recovery Platform  
-**Total Automated Tests:** 38 Tests Across 15 Test Suites  
+**Total Automated Tests:** 51 Tests Across 15 Test Suites  
 **Verification Result:** 100% Passed (0 Failures, 0 Regressions)  
-**Execution Runtime:** ~11.5 seconds  
+**Execution Runtime:** ~9.1 seconds  
 **Test Harness:** Pytest 9.2, FastAPI TestClient, AnyIO, In-Memory / Isolated SQLite  
 
 ---
@@ -32,22 +32,35 @@ CloudVault 2.0 enforces a multi-tiered testing strategy designed to validate cor
 
 ---
 
-## 2. Complete Test Suite Inventory (38 Tests)
+## 2. Complete Test Suite Inventory (51 Tests)
 
-### 1. AI Copilot & Safety Protocol (`test_ai_assistant.py`)
+### 1. AI Copilot & Safety Protocol (`test_ai_assistant.py`) — 8 Tests
 - `test_ai_capabilities`: Validates schema and whitelist of read-only queries vs controlled actions.
 - `test_ai_read_only_queries`: Verifies metadata lookups for file protection counts, snapshot history, and storage metrics without state mutation.
 - `test_ai_controlled_action_and_replay_protection`: Verifies HMAC-SHA256 signature generation, 5-minute expiration, and strict anti-replay nonce tracking.
-- `test_ai_cross_user_token_protection`: Confirms that a confirmation token minted for User A is rejected with HTTP 403 when submitted by User B.
+- `test_ai_cross_user_token_protection`: Confirms that a confirmation token minted for User A is rejected with HTTP 400 when submitted by User B.
 - `test_ai_audit_log_hash_chaining`: Verifies immutable hash chain linkage ($\text{Entry Hash} = \text{SHA-256}(\text{Prev Hash} \parallel \text{Entry Data})$).
+- `test_ai_milestone_restore_file_flow`: Complete 9-step end-to-end flow demonstrating restore proposal, signed token, human confirmation, SHA-256 verification, and audit chaining.
+- `test_ai_all_ten_example_queries`: Validates clean answers across all 10 user queries without fabricated stats.
+- `test_ai_external_llm_fallback_resilience`: Verifies graceful fallback to offline local semantic rules when external LLM is unreachable.
 
-### 2. Disaster Recovery Center (`test_disaster_recovery.py`)
-- `test_dr_metrics_calculation`: Validates live RPO status calculation against real snapshot timestamps and RTO throughput projection.
-- `test_synthetic_recovery_drill_success`: Verifies sandboxed block download, decompression, decryption, and 100% bit-level SHA-256 matching.
-- `test_synthetic_recovery_drill_corruption_detection`: Purposely injects corrupted byte digests; confirms drill failure detection and snapshot status update.
-- `test_dr_history_endpoint`: Verifies retrieval and pagination of past automated and manual disaster recovery drills.
+### 2. Cyber Defense & Ransomware Detection (`test_ransomware_detection.py`) — 14 Tests
+- `test_shannon_entropy_calculation`: Validates mathematical accuracy of the Shannon entropy engine ($H \in [0.0, 8.0]$).
+- `test_high_entropy_compressed_files_not_quarantined`: Confirms that naturally high-entropy compressed files (`.zip`, `.jpg`, `.mp4`) never trigger false-positive quarantine.
+- `test_high_entropy_encrypted_files_with_ransomware_extensions`: Verifies ransomware extension detection (`.locked`, `.crypto`) with elevated risk $\ge 80$.
+- `test_rapid_bulk_file_modifications_burst`: Tests velocity monitoring on large bursts of modified files.
+- `test_suspicious_double_extensions`: Verifies detection of obfuscated double extensions (e.g. `payroll.pdf.locked`).
+- `test_large_deletion_bursts`: Tests anomaly detection when sudden large deletions occur.
+- `test_combined_anomaly_signals`: Verifies multi-signal correlation (extension + entropy + velocity + deletion).
+- `test_false_positive_delta_entropy_handling`: Compares file entropy against historical clean baselines to separate natural edits from encryption spikes.
+- `test_alert_generation_and_snapshot_preservation`: Confirms automatic WORM immutability locking of prior clean snapshots on elevated risk.
+- `test_quarantine_resolution_and_reversal`: Validates reversible alert resolution and snapshot unquarantine.
+- `test_safe_simulation_sandbox_execution`: Verifies isolated sandbox attack simulations for mass encryption and archive scenarios.
+- `test_cross_user_security_isolation`: Confirms strict tenant isolation for alerts and dismissal operations.
+- `test_ai_security_assistant_queries`: Tests all 6 AI assistant security queries (suspicious activity, flagged backup explanation, affected files, risk score, clean recovery snapshot, next steps).
+- `test_authorization_of_sensitive_recovery_actions_under_alert`: Verifies cryptographic token authorization for sensitive remediation actions.
 
-### 3. Cyber Defense & Ransomware Detection (`test_ransomware_detection.py`)
+### 3. Disaster Recovery Center (`test_disaster_recovery.py`) — 4 Tests
 - `test_shannon_entropy_calculation`: Validates mathematical accuracy of the Shannon entropy engine ($H \in [0.0, 8.0]$).
 - `test_high_entropy_alone_does_not_trigger_quarantine`: Confirms that naturally high-entropy compressed files (`.zip`, `.jpg`) never trigger false-positive quarantine.
 - `test_simulated_ransomware_detection_and_quarantine`: Simulates multi-signal ransomware attack; confirms risk score $\ge 70$, quarantine alert, and automated WORM snapshot shielding.

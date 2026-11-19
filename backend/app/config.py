@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     GCS_CREDENTIALS_JSON: str = ""  # Service account JSON string
     GCS_REGION: str = "us-central1"
 
+    # AI Anomaly & Ransomware Detection Thresholds
+    RANSOMWARE_ENTROPY_THRESHOLD: float = 7.50
+    RISK_THRESHOLD_SUSPICIOUS: int = 30
+    RISK_THRESHOLD_HIGH: int = 60
+    RISK_THRESHOLD_CRITICAL: int = 80
+    BURST_MODIFICATION_COUNT: int = 20
+    DELETION_BURST_THRESHOLD: int = 15
+
     class Config:
         env_file = ".env"
         extra = "allow"

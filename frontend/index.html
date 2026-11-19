@@ -355,17 +355,73 @@ GCS_REGION=us-central1
                     <div>
                         <strong id="threat-status-title" style="font-size:1.05rem;color:#34d399;">RANSOMWARE SHIELD: ARMED & MONITORING</strong>
                         <p style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.15rem;">
-                            Shannon entropy threshold: H &ge; 7.50 bits/byte | Known ransomware extension signatures active | WORM auto-lock enabled
+                            Shannon entropy delta monitoring (H &ge; 7.50 bits/byte) | 21 known ransomware extensions | Automatic WORM snapshot shielding on high risk
                         </p>
                     </div>
                 </div>
                 <button id="run-entropy-scan-btn" class="btn btn-outline-accent btn-sm">Scan Active Folder</button>
             </div>
 
+            <!-- Security Posture Overview Stats -->
+            <div class="stats-grid" style="margin-bottom:1.5rem;">
+                <div class="stat-card">
+                    <span class="stat-title">Overall Threat Level</span>
+                    <span id="sec-stat-threat-level" class="stat-value" style="color:#10b981;">HEALTHY</span>
+                    <span id="sec-stat-threat-sub" class="stat-subtitle">All systems normal</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-title">Peak Risk Score</span>
+                    <span id="sec-stat-risk-score" class="stat-value">0 / 100</span>
+                    <div class="risk-meter-container">
+                        <div id="sec-risk-meter-fill" class="risk-meter-fill normal" style="width:0%;"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-title">Active Security Alerts</span>
+                    <span id="sec-stat-active-alerts" class="stat-value">0</span>
+                    <span id="sec-stat-quarantined" class="stat-subtitle">0 quarantined</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-title">Shielded Snapshots</span>
+                    <span id="sec-stat-shielded-snaps" class="stat-value">0</span>
+                    <span class="stat-subtitle">Protected by WORM lock</span>
+                </div>
+            </div>
+
+            <!-- Safe Simulated Ransomware Testing Sandbox Panel -->
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">🧪 Safe Ransomware Testing Sandbox</h2>
+                    <span class="badge badge-mock">Zero-Cost Non-Destructive Simulator</span>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                    Test the explainable multi-signal detection engine safely. This creates temporary dummy files in an isolated RAM/temp sandbox, tests entropy and extension monitors, and automatically cleans up immediately. <strong>Never touches real files or database backups.</strong>
+                </p>
+                <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
+                    <select id="sim-scenario-select" style="max-width:320px;">
+                        <option value="mass_encryption">Mass Mock Encryption (12 .locked files, H > 7.5)</option>
+                        <option value="suspicious_extension">Suspicious Extension (8 .crypto files)</option>
+                        <option value="high_entropy_archive">High-Entropy Archive (6 .zip files — Zero False Positive Test)</option>
+                    </select>
+                    <button id="run-sim-attack-btn" class="btn btn-warning btn-sm">
+                        ⚡ Run Safe Simulation
+                    </button>
+                    <span id="sim-status-feedback" style="font-size:0.85rem;color:var(--text-secondary);"></span>
+                </div>
+            </div>
+
             <!-- Active Alerts Card -->
             <div class="card" style="margin-bottom:1.5rem;">
                 <div class="card-header">
                     <h2 class="card-title">Anomalous Activity & Ransomware Alerts</h2>
+                    <div style="display:flex;gap:0.5rem;align-items:center;">
+                        <select id="security-alerts-filter" style="font-size:0.8rem;padding:0.25rem 0.5rem;">
+                            <option value="ACTIVE">Status: Active Only</option>
+                            <option value="ALL">Status: All (History)</option>
+                            <option value="DISMISSED">Status: Dismissed</option>
+                            <option value="RESOLVED">Status: Resolved</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="table-wrapper">
                     <table>
@@ -373,13 +429,14 @@ GCS_REGION=us-central1
                             <tr>
                                 <th>Severity</th>
                                 <th>Risk Score</th>
-                                <th>Anomaly Details</th>
+                                <th>Anomaly Details & Reasons</th>
+                                <th>Status</th>
                                 <th>Detected At</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="security-alerts-table-body">
-                            <tr><td colspan="5" style="text-align:center;">No active ransomware or anomalous activity detected.</td></tr>
+                            <tr><td colspan="6" style="text-align:center;">No active ransomware or anomalous activity detected.</td></tr>
                         </tbody>
                     </table>
                 </div>

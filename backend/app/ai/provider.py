@@ -170,10 +170,108 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                 "action_card": action_proposal
             }
 
-        # 6. Security Alerts & Ransomware Query
-        if any(w in p for w in ["security", "ransomware", "alert", "anomaly", "threat"]):
+        # 6. Security Alerts, Ransomware & Anomaly Queries
+        if any(w in p for w in [
+            "security", "ransomware", "alert", "anomaly", "threat", "suspicious",
+            "why was this backup flagged", "why was my backup flagged", "flagged",
+            "which files are affected", "files affected", "risk level", "current risk",
+            "which clean snapshot", "clean recovery", "clean snapshot", "what should i do next"
+        ]):
             data = tool_explain_security_alerts(user_id, db)
             alerts = data["alerts"]
+            clean_snap = data.get("clean_recovery_snapshot")
+
+            # 6A. Specific query: "Which clean snapshot should I recover?"
+            if any(w in p for w in ["clean snapshot", "which clean", "recover clean", "clean recovery"]):
+                if not clean_snap:
+                    return {
+                        "response": (
+                            "### ⏳ Clean Recovery Point Recommendation\n\n"
+                            "No prior clean snapshots were found in your repository history. "
+                            "Please run an on-demand verified backup of your known-clean source folders."
+                            f"{self.FALLBACK_NOTICE}"
+                        ),
+                        "data": data,
+                        "action_card": None
+                    }
+                lock_text = "🔒 WORM Shielded" if clean_snap["is_immutable"] else "Active"
+                return {
+                    "response": (
+                        f"### 🛡️ Recommended Clean Recovery Point\n\n"
+                        f"The safest point-in-time snapshot to recover is **Snapshot #{clean_snap['snapshot_number']} ({clean_snap['name']})**.\n\n"
+                        f"- **Snapshot ID:** `{clean_snap['snapshot_id']}`\n"
+                        f"- **Creation Timestamp:** `{clean_snap['created_at'][:19].replace('T', ' ')} UTC`\n"
+                        f"- **Files Preserved:** {clean_snap['total_files']} files\n"
+                        f"- **Integrity Status:** {lock_text} (Preserved prior to anomalous activity)\n\n"
+                        f"You can restore files from this verified snapshot using the **Snapshot Time Machine** tab or by asking me to *'Restore a file'*."
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
+                    "data": {"recommended_snapshot": clean_snap},
+                    "action_card": None
+                }
+
+            # 6B. Specific query: "What should I do next?"
+            if any(w in p for w in ["what should i do next", "next step", "what to do"]):
+                if not alerts:
+                    return {
+                        "response": (
+                            "### 🛡️ Security Posture & Next Steps\n\n"
+                            "Your CloudVault system is completely clean with **0 active security alerts**.\n\n"
+                            "**Recommended Next Steps:**\n"
+                            "1. Keep scheduled backups active to protect against sudden file modifications.\n"
+                            "2. Ensure AES-256-GCM encryption is enabled for all plans.\n"
+                            "3. Run periodic synthetic recovery drills to verify SHA-256 hash fidelity."
+                            f"{self.FALLBACK_NOTICE}"
+                        ),
+                        "data": data,
+                        "action_card": None
+                    }
+                top_alert = alerts[0]
+                rec_lines = [
+                    f"### 🛡️ Security Remediation Steps (Risk Score: {top_alert['risk_score']}/100)\n",
+                    "**Immediate Actions Required:**\n",
+                    f"1. **Isolate infected folders:** Suspicious extensions detected: `{', '.join(top_alert['matched_extensions']) if top_alert['matched_extensions'] else 'None'}`.",
+                    f"2. **Preserve clean backups:** Previous clean snapshots have been automatically shielded with WORM locks.",
+                    f"3. **Recover from clean point:** Recover known-clean files from **Snapshot #{clean_snap['snapshot_number'] if clean_snap else '1'}**.",
+                    "4. **Review & Resolve:** Navigate to the **Security & Ransomware Shield** tab in the dashboard to inspect the full file list or resolve the alert."
+                ]
+                rec_lines.append(self.FALLBACK_NOTICE)
+                return {
+                    "response": "\n".join(rec_lines),
+                    "data": data,
+                    "action_card": None
+                }
+
+            # 6C. Specific query: "Which files are affected?" or "Why was this backup flagged?"
+            if any(w in p for w in ["which files are affected", "files affected", "why was this backup flagged", "why was my backup flagged"]):
+                if not alerts:
+                    return {
+                        "response": (
+                            "### ✅ File Integrity Status\n\n"
+                            "No files are currently affected or flagged by ransomware anomaly detection. All local files match expected patterns."
+                            f"{self.FALLBACK_NOTICE}"
+                        ),
+                        "data": data,
+                        "action_card": None
+                    }
+                top_alert = alerts[0]
+                reasons_formatted = "\n".join([f"- {r}" for r in top_alert["reasons"]])
+                return {
+                    "response": (
+                        f"### 🔍 Flagged Backup & Affected Files Analysis\n\n"
+                        f"- **Alert Level:** **{top_alert['alert_level']}** (Risk Score: **{top_alert['risk_score']}/100**)\n"
+                        f"- **Affected Files Count:** **{top_alert['suspicious_files_count']} file(s)**\n"
+                        f"- **Matched Signatures:** `{', '.join(top_alert['matched_extensions']) if top_alert['matched_extensions'] else 'High Entropy Ciphertext Anomaly'}`\n"
+                        f"- **Average Entropy:** {top_alert['average_entropy']} bits/byte\n\n"
+                        f"**Detection Reasons:**\n{reasons_formatted}\n\n"
+                        f"**Protection Status:** Automatic snapshot shielding engaged. Previous clean backups are immutable and safe."
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
+                    "data": data,
+                    "action_card": None
+                }
+
+            # 6D. General Security Alerts & Threat Status Query
             if not alerts:
                 return {
                     "response": (
@@ -187,9 +285,14 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     "data": data,
                     "action_card": None
                 }
+
             lines = [f"### 🚨 Active Security Alerts ({len(alerts)})\n"]
             for a in alerts:
                 lines.append(f"- **{a['alert_level']} (Score: {a['risk_score']}/100)**: {a['suspicious_files_count']} suspicious files (Avg entropy: {a['average_entropy']} bits/byte).")
+                for r in a["reasons"][:2]:
+                    lines.append(f"  * {r}")
+            if clean_snap:
+                lines.append(f"\n**Safe Recovery Point:** Snapshot #{clean_snap['snapshot_number']} ({clean_snap['name']}) is shielded and available for clean restore.")
             lines.append("\n**Action taken:** Automatic snapshot lock and quarantine have been engaged to protect previous clean recovery points.")
             lines.append(self.FALLBACK_NOTICE)
             return {

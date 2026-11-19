@@ -945,6 +945,62 @@ pre {
     border-color: rgba(239, 68, 68, 0.4);
 }
 
+.risk-meter-container {
+    background: #0f172a;
+    border-radius: 999px;
+    height: 12px;
+    overflow: hidden;
+    margin: 0.4rem 0;
+    border: 1px solid #334155;
+    position: relative;
+}
+
+.risk-meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+
+.risk-meter-fill.normal {
+    background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.risk-meter-fill.suspicious {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.risk-meter-fill.high-risk {
+    background: linear-gradient(90deg, #f97316, #fb923c);
+}
+
+.risk-meter-fill.critical {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+}
+
+.badge-quarantined {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.badge-high-risk {
+    background: rgba(249, 115, 22, 0.2);
+    color: #f97316;
+    border: 1px solid rgba(249, 115, 22, 0.4);
+}
+
+.badge-suspicious {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.badge-normal {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
 .audit-hash-code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.75rem;

@@ -1,7 +1,7 @@
 # CloudVault 2.0 – AI-Powered Cloud Backup, Security & Disaster Recovery
 
 > **Cloud Computing Capstone & Cloud SaaS Foundation**  
-> **Status:** Fully Functional & Tested (38/38 Tests Passing)  
+> **Status:** Fully Functional & Tested (51/51 Tests Passing)  
 > **Architectural Paradigm:** Multi-Cloud Storage • AI Copilot • Ransomware Shield • Disaster Recovery Center • Envelope Encryption  
 > **Compatibility:** Windows 10/11, macOS, Linux • Responsive Mobile/Tablet/Desktop PWA  
 
@@ -25,8 +25,8 @@
 |               |                 |               |                 |               |
 | - Natural NLP |                 | - Shannon     |                 | - Calculated  |
 | - HMAC-SHA256 |                 |   Entropy H   |                 |   RPO Monitor |
-|   Signatures  |                 | - Ransomware  |                 | - Measured    |
-| - Anti-Replay |                 |   Signatures  |                 |   RTO Drills  |
+|   Signatures  |                 | - Multi-Signal|                 | - Measured    |
+| - Anti-Replay |                 |   Heuristics  |                 |   RTO Drills  |
 | - Immutable   |                 | - WORM Auto-  |                 | - Bit-Level   |
 |   Audit Chain |                 |   Shielding   |                 |   Sandbox Run |
 +-------+-------+                 +-------+-------+                 +-------+-------+
@@ -49,15 +49,20 @@
 
 ### 🤖 1. AI CloudVault Copilot (Intelligent Assistant)
 - **Natural Language Backup Intelligence:** Ask questions like *"How many files are protected?"*, *"Explain my storage savings"*, *"Which files have not been backed up recently?"*, or *"Is my backup system healthy?"*.
-- **Cryptographic Human-in-the-Loop Action Protocol:** The AI **never** executes mutating or destructive actions autonomously. Sensitive operations (`TRIGGER_BACKUP`, `RESTORE_FILE`, `LOCK_SNAPSHOT`) generate a single-use, 5-minute cryptographic HMAC-SHA256 authorization token requiring explicit user confirmation.
+- **Cryptographic Human-in-the-Loop Action Protocol:** The AI **never** executes mutating or destructive actions autonomously. Sensitive operations (`TRIGGER_BACKUP`, `RESTORE_FILE`, `LOCK_SNAPSHOT`, `RESOLVE_ALERT`) generate a single-use, 5-minute cryptographic HMAC-SHA256 authorization token requiring explicit user confirmation.
 - **Anti-Replay Protection:** Nonce tracking prevents consumed tokens from ever being replayed.
 - **Tamper-Evident Audit Logging:** Every AI proposal and execution is permanently logged to an immutable hash chain where each record incorporates the SHA-256 digest of the preceding record.
 
 ### 🛡️ 2. AI-Powered Ransomware & Threat Shield
-- **Shannon Entropy Detection Engine:** Computes Shannon entropy ($H \in [0.0, 8.0]$ bits/byte) across file payloads. Files exhibiting $H \ge 7.50$ bits/byte indicate encryption or compression.
-- **Multi-Signal Anomaly Scoring (0–100):** Combines known ransomware extension signatures (`.locked`, `.crypto`, `.wnry`, `.crypted`, etc.) with entropy deviations and mass modification velocity.
-- **False-Positive Prevention:** Naturally compressed or encrypted media (`.zip`, `.jpg`, `.mp4`, `.pdf`) are shielded from false positives; high entropy alone **never** triggers false quarantine.
-- **Automated WORM Snapshot Shielding:** On high-risk detection, existing clean snapshots are automatically locked against deletion to protect recovery points from ransomware tampering.
+- **Shannon Entropy Delta Engine:** Computes Shannon entropy ($H \in [0.0, 8.0]$ bits/byte) and compares version deltas against clean historical baselines to pinpoint sudden encryption spikes in document/code files.
+- **Multi-Signal Anomaly Scoring (0–100):** Correlates four distinct attack vectors:
+  1. Monitored Ransomware Extensions (21 known signatures e.g. `.locked`, `.crypto`, `.wnry`, double extensions like `.pdf.locked`).
+  2. Plaintext / Document High Entropy Jumps ($H \ge 7.50$ on non-archive files).
+  3. Modification Velocity Bursts (mass changes in a short time window).
+  4. Deletion Bursts (sudden bulk removal of protected assets).
+- **False-Positive Prevention:** Naturally compressed or media formats (`.zip`, `.jpg`, `.mp4`, `.pdf`) are excluded from entropy anomaly flags; high entropy alone **never** triggers quarantine.
+- **Automated WORM Snapshot Shielding:** On high-risk detection ($\ge 60$ or `QUARANTINED`), previous clean snapshots are automatically locked with 14-day WORM retention to prevent deletion or overwriting.
+- **Reversible Quarantine & Sandbox Simulator:** Reversible unquarantine workflow and an isolated testing sandbox panel for zero-risk ransomware simulations.
 
 ### 📊 3. Predictive AI Analytics & Storage Intelligence
 - **Unified Backup Health Score (0–100):** Weighted multi-dimensional health index evaluating RPO recency (35 pts), job reliability (30 pts), security posture (20 pts), and deduplication efficiency (15 pts).

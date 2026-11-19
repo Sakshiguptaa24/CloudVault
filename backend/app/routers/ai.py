@@ -161,6 +161,23 @@ def confirm_ai_action(
             "drill": drill
         }
 
+    # 5. RESOLVE_ALERT
+    elif action_type == "RESOLVE_ALERT":
+        from backend.app.services.ransomware_service import resolve_security_alert
+
+        alert_id = payload.get("alert_id")
+        notes = payload.get("notes", "Resolved via AI Assistant confirmed action")
+        unquarantine = payload.get("unquarantine_snapshots", True)
+
+        res = resolve_security_alert(
+            alert_id=alert_id,
+            user_id=current_user.id,
+            resolution_notes=notes,
+            unquarantine_snapshots=unquarantine,
+            db=db
+        )
+        execution_result = res
+
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported action type: {action_type}")
 

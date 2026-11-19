@@ -142,7 +142,8 @@ def tool_get_unprotected_files(user_id: str, db: Session) -> Dict[str, Any]:
     }
 
 def tool_explain_security_alerts(user_id: str, db: Session) -> Dict[str, Any]:
-    """Explain latest active ransomware or anomalous file activity alerts."""
+    """Explain latest active ransomware or anomalous file activity alerts with detection reasons."""
+    import json
     alerts = db.query(RansomwareAlert).filter(
         RansomwareAlert.user_id == user_id,
         RansomwareAlert.status == "ACTIVE"
@@ -150,19 +151,58 @@ def tool_explain_security_alerts(user_id: str, db: Session) -> Dict[str, Any]:
 
     results = []
     for a in alerts:
+        try:
+            reasons = json.loads(a.details)
+        except Exception:
+            reasons = [a.details]
+        try:
+            exts = json.loads(a.matched_extensions)
+        except Exception:
+            exts = []
+
         results.append({
             "alert_id": a.id,
+            "plan_id": a.plan_id,
             "risk_score": a.risk_score,
             "alert_level": a.alert_level,
             "suspicious_files_count": a.suspicious_files_count,
             "average_entropy": round(a.average_entropy, 2),
-            "matched_extensions": a.matched_extensions,
+            "matched_extensions": exts,
+            "reasons": reasons,
             "detected_at": a.created_at.isoformat()
         })
+
+    # Identify recommended clean recovery snapshot (prior to alert creation)
+    clean_snapshot = None
+    if alerts:
+        earliest_alert_time = min(a.created_at for a in alerts)
+        clean_snap = db.query(Snapshot).filter(
+            Snapshot.user_id == user_id,
+            Snapshot.created_at < earliest_alert_time
+        ).order_by(Snapshot.created_at.desc()).first()
+
+        if not clean_snap:
+            # Fallback to oldest snapshot
+            clean_snap = db.query(Snapshot).filter(
+                Snapshot.user_id == user_id
+            ).order_by(Snapshot.created_at.asc()).first()
+
+        if clean_snap:
+            clean_snapshot = {
+                "snapshot_id": clean_snap.id,
+                "snapshot_number": clean_snap.snapshot_number,
+                "name": clean_snap.name,
+                "created_at": clean_snap.created_at.isoformat(),
+                "total_files": clean_snap.total_files,
+                "is_locked": clean_snap.is_locked,
+                "is_immutable": clean_snap.is_immutable
+            }
+
     return {
         "status": "success",
         "active_alerts_count": len(results),
-        "alerts": results
+        "alerts": results,
+        "clean_recovery_snapshot": clean_snapshot
     }
 
 def tool_check_system_health(user_id: str, db: Session) -> Dict[str, Any]:

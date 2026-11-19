@@ -6,10 +6,16 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
-from backend.app.models import User, BackupPlan, RansomwareAlert, AuditLog
+from backend.app.models import User, BackupPlan, Snapshot, RansomwareAlert, AuditLog
 from backend.app.auth import get_current_user
+from backend.app.config import settings
 from backend.app.services.ransomware_service import (
-    analyze_file_list, scan_and_evaluate_plan, calculate_shannon_entropy
+    analyze_file_activity,
+    analyze_file_list,
+    scan_and_evaluate_plan,
+    resolve_security_alert,
+    simulate_ransomware_scenario,
+    calculate_shannon_entropy
 )
 from backend.app.ai.security import record_audit_log
 
@@ -22,6 +28,13 @@ class AnalyzePathRequest(BaseModel):
 class DismissAlertRequest(BaseModel):
     resolution_notes: Optional[str] = "False positive verified by user"
 
+class ResolveAlertRequest(BaseModel):
+    resolution_notes: Optional[str] = "Threat resolved and verified safe"
+    unquarantine_snapshots: Optional[bool] = True
+
+class SimulateAttackRequest(BaseModel):
+    scenario_type: Optional[str] = "mass_encryption"  # 'mass_encryption', 'suspicious_extension', 'high_entropy_archive'
+
 @router.get("/alerts")
 def list_security_alerts(
     status: Optional[str] = None,
@@ -30,8 +43,8 @@ def list_security_alerts(
 ):
     """Retrieve all active or historical ransomware alerts for the authenticated user."""
     query = db.query(RansomwareAlert).filter(RansomwareAlert.user_id == current_user.id)
-    if status:
-        query = query.filter(RansomwareAlert.status == status)
+    if status and status.upper() != "ALL":
+        query = query.filter(RansomwareAlert.status == status.upper())
 
     alerts = query.order_by(RansomwareAlert.created_at.desc()).all()
     results = []
@@ -64,15 +77,23 @@ def get_security_health(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get real-time security defense posture and ransomware monitoring metrics."""
+    """Get real-time security defense posture, risk meters, and ransomware monitoring metrics."""
     active_alerts = db.query(RansomwareAlert).filter(
         RansomwareAlert.user_id == current_user.id,
         RansomwareAlert.status == "ACTIVE"
-    ).count()
+    ).all()
+
+    quarantined_count = sum(1 for a in active_alerts if a.alert_level == "QUARANTINED")
+    max_risk = max((a.risk_score for a in active_alerts), default=0)
 
     total_plans = db.query(BackupPlan).filter(
         BackupPlan.user_id == current_user.id,
         BackupPlan.is_active == True
+    ).count()
+
+    shielded_snapshots = db.query(Snapshot).filter(
+        Snapshot.user_id == current_user.id,
+        Snapshot.is_locked == True
     ).count()
 
     recent_critical_audits = db.query(AuditLog).filter(
@@ -80,14 +101,33 @@ def get_security_health(
         AuditLog.severity.in_(["WARNING", "CRITICAL"])
     ).count()
 
+    if quarantined_count > 0 or max_risk >= 80:
+        overall_status = "CRITICAL"
+    elif len(active_alerts) > 0 or max_risk >= 30:
+        overall_status = "WARNING"
+    else:
+        overall_status = "HEALTHY"
+
     return {
-        "status": "HEALTHY" if active_alerts == 0 else "WARNING",
+        "status": overall_status,
+        "overall_risk_score": max_risk,
         "shield_active": True,
-        "active_ransomware_alerts": active_alerts,
+        "active_ransomware_alerts": len(active_alerts),
+        "quarantined_alerts_count": quarantined_count,
+        "shielded_snapshots_count": shielded_snapshots,
         "monitored_backup_plans": total_plans,
         "recent_security_events": recent_critical_audits,
-        "entropy_detection_algorithm": "Shannon Entropy (H >= 7.5 bits/byte)",
-        "extension_heuristics": "Active (12 known ransomware patterns monitored)"
+        "thresholds": {
+            "entropy_threshold": getattr(settings, "RANSOMWARE_ENTROPY_THRESHOLD", 7.50),
+            "suspicious_threshold": getattr(settings, "RISK_THRESHOLD_SUSPICIOUS", 30),
+            "high_risk_threshold": getattr(settings, "RISK_THRESHOLD_HIGH", 60),
+            "critical_threshold": getattr(settings, "RISK_THRESHOLD_CRITICAL", 80)
+        },
+        "heuristics": {
+            "entropy_detection": "Shannon Entropy Delta & Absolute (H >= 7.50 bits/byte)",
+            "monitored_extensions_count": 21,
+            "worm_auto_lock": "Active on Risk >= 60"
+        }
     }
 
 @router.post("/analyze-path")
@@ -107,7 +147,8 @@ def analyze_path_for_ransomware(
             "plan_id": plan.id,
             "alert_generated": alert is not None,
             "alert_id": alert.id if alert else None,
-            "risk_score": alert.risk_score if alert else 0
+            "risk_score": alert.risk_score if alert else 0,
+            "alert_level": alert.alert_level if alert else "NORMAL"
         }
 
     target_dir = req.target_directory
@@ -123,10 +164,10 @@ def analyze_path_for_ransomware(
                 "file_name": f,
                 "file_extension": os.path.splitext(f)[1].lower()
             })
-            if len(files) >= 200:
+            if len(files) >= 250:
                 break
 
-    analysis = analyze_file_list(files)
+    analysis = analyze_file_activity(files)
     return {
         "status": "COMPLETED",
         "scanned_files_count": len(files),
@@ -163,6 +204,43 @@ def dismiss_security_alert(
 
     return {"status": "SUCCESS", "message": "Alert marked as dismissed.", "alert_id": alert.id}
 
+@router.post("/alerts/{alert_id}/resolve")
+def resolve_alert(
+    alert_id: str,
+    req: ResolveAlertRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Resolve an active alert and reversibly unquarantine affected snapshots."""
+    try:
+        res = resolve_security_alert(
+            alert_id=alert_id,
+            user_id=current_user.id,
+            resolution_notes=req.resolution_notes or "Resolved by user",
+            unquarantine_snapshots=bool(req.unquarantine_snapshots),
+            db=db
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/simulate-test")
+def simulate_attack_test(
+    req: SimulateAttackRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Execute a 100% safe, non-destructive ransomware simulation in a temporary isolated sandbox.
+    Never touches user files or database backups.
+    """
+    res = simulate_ransomware_scenario(
+        user_id=current_user.id,
+        db=db,
+        scenario_type=req.scenario_type or "mass_encryption"
+    )
+    return res
+
 @router.get("/audit-logs")
 def list_audit_logs(
     limit: int = Query(50, ge=1, le=200),
@@ -192,4 +270,3 @@ def list_audit_logs(
             "created_at": l.created_at.isoformat()
         })
     return {"audit_logs": results, "count": len(results)}
-

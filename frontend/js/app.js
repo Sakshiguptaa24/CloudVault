@@ -873,8 +873,48 @@ function setupDRControls() {
 // 2. Security & Ransomware Shield Controller
 async function loadSecurityCenter() {
     try {
-        // 1. Fetch active alerts
-        const alertsData = await api.getSecurityAlerts("ACTIVE");
+        // 1. Fetch Security Health
+        try {
+            const health = await api.getSecurityHealth();
+            const threatStatusEl = document.getElementById("sec-stat-threat-level");
+            const threatSubEl = document.getElementById("sec-stat-threat-sub");
+            const riskScoreEl = document.getElementById("sec-stat-risk-score");
+            const riskMeterFill = document.getElementById("sec-risk-meter-fill");
+            const activeAlertsEl = document.getElementById("sec-stat-active-alerts");
+            const quarantinedEl = document.getElementById("sec-stat-quarantined");
+            const shieldedSnapsEl = document.getElementById("sec-stat-shielded-snaps");
+
+            if (threatStatusEl) {
+                threatStatusEl.textContent = health.status;
+                threatStatusEl.style.color = health.status === "CRITICAL" ? "#ef4444" : (health.status === "WARNING" ? "#f59e0b" : "#10b981");
+            }
+            if (threatSubEl) {
+                threatSubEl.textContent = health.status === "CRITICAL" ? "Immediate attention required" : (health.status === "WARNING" ? "Anomalies detected" : "All systems normal");
+            }
+            if (riskScoreEl) {
+                riskScoreEl.textContent = `${health.overall_risk_score} / 100`;
+            }
+            if (riskMeterFill) {
+                riskMeterFill.style.width = `${Math.min(100, health.overall_risk_score)}%`;
+                riskMeterFill.className = "risk-meter-fill " + (
+                    health.overall_risk_score >= 80 ? "critical" : (
+                        health.overall_risk_score >= 60 ? "high-risk" : (
+                            health.overall_risk_score >= 30 ? "suspicious" : "normal"
+                        )
+                    )
+                );
+            }
+            if (activeAlertsEl) activeAlertsEl.textContent = health.active_ransomware_alerts;
+            if (quarantinedEl) quarantinedEl.textContent = `${health.quarantined_alerts_count} quarantined`;
+            if (shieldedSnapsEl) shieldedSnapsEl.textContent = health.shielded_snapshots_count;
+        } catch (e) {
+            console.warn("Could not load security health:", e);
+        }
+
+        // 2. Fetch Alerts (using filter selection)
+        const filterSelect = document.getElementById("security-alerts-filter");
+        const statusFilter = filterSelect ? filterSelect.value : "ACTIVE";
+        const alertsData = await api.getSecurityAlerts(statusFilter);
         const alerts = alertsData.alerts || [];
         const tbody = document.getElementById("security-alerts-table-body");
         const banner = document.getElementById("threat-banner");
@@ -882,29 +922,65 @@ async function loadSecurityCenter() {
         const threatIcon = document.getElementById("threat-icon");
         tbody.innerHTML = "";
 
-        if (alerts.length === 0) {
+        const activeAlertsCount = alerts.filter(a => a.status === "ACTIVE").length;
+
+        if (activeAlertsCount === 0) {
             banner.classList.remove("threat-detected");
             bannerTitle.textContent = "RANSOMWARE SHIELD: ARMED & MONITORING";
             bannerTitle.style.color = "#34d399";
             threatIcon.textContent = "🛡️";
-            tbody.innerHTML = "<tr><td colspan='5' style='text-align:center;'>No active ransomware or anomalous activity detected. All files verified clean.</td></tr>";
+            if (alerts.length === 0) {
+                tbody.innerHTML = "<tr><td colspan='6' style='text-align:center;'>No security alerts recorded. All files verified clean.</td></tr>";
+            }
         } else {
             banner.classList.add("threat-detected");
-            bannerTitle.textContent = `🚨 ${alerts.length} ANOMALOUS ACTIVITY ALERT(S) DETECTED`;
+            bannerTitle.textContent = `🚨 ${activeAlertsCount} ANOMALOUS ACTIVITY ALERT(S) DETECTED`;
             bannerTitle.style.color = "#ef4444";
             threatIcon.textContent = "⚠️";
+        }
 
+        if (alerts.length > 0) {
             alerts.forEach(a => {
                 const tr = document.createElement("tr");
-                const badgeClass = a.severity === "CRITICAL" ? "badge-critical" : (a.severity === "HIGH" ? "badge-warning" : "badge-optimal");
+                const level = a.alert_level || a.severity || "NORMAL";
+                const badgeClass = level === "QUARANTINED" ? "badge-quarantined" : (
+                    level === "HIGH_RISK" ? "badge-high-risk" : (
+                        level === "SUSPICIOUS" ? "badge-suspicious" : "badge-normal"
+                    )
+                );
+
+                const reasonsList = Array.isArray(a.reasons) ? a.reasons : [a.details || "Anomalous file behavior"];
+                const reasonsHtml = reasonsList.map(r => `<div>• ${escapeHTML(r)}</div>`).join("");
+
+                const exts = Array.isArray(a.matched_extensions) ? a.matched_extensions.join(", ") : "";
+                const extsBadge = exts ? `<div style="margin-top:0.25rem;"><span class="badge badge-mock" style="font-size:0.7rem;">Ext: ${escapeHTML(exts)}</span></div>` : "";
+
+                const statusBadge = a.status === "ACTIVE" ?
+                    `<span class="badge badge-warning">ACTIVE</span>` :
+                    `<span class="badge badge-passed">${escapeHTML(a.status)}</span>`;
+
+                let actionButtons = "";
+                if (a.status === "ACTIVE") {
+                    actionButtons = `
+                        <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+                            <button class="btn btn-secondary btn-sm dismiss-alert-btn" data-alert-id="${a.id}" title="Acknowledge False Positive">Dismiss</button>
+                            <button class="btn btn-outline-accent btn-sm resolve-alert-btn" data-alert-id="${a.id}" title="Resolve Threat and Unlock Snapshots">✓ Resolve</button>
+                        </div>
+                    `;
+                } else {
+                    actionButtons = `<span style="font-size:0.8rem;color:var(--text-secondary);">Closed</span>`;
+                }
+
                 tr.innerHTML = `
-                    <td><span class="badge ${badgeClass}">${a.severity}</span></td>
+                    <td><span class="badge ${badgeClass}">${escapeHTML(level)}</span></td>
                     <td><strong>${a.risk_score} / 100</strong></td>
-                    <td style="font-size:0.85rem;">${escapeHTML(JSON.stringify(a.detection_details || {}))}</td>
-                    <td>${formatDate(a.created_at)}</td>
-                    <td>
-                        <button class="btn btn-secondary btn-sm dismiss-alert-btn" data-alert-id="${a.id}">Dismiss</button>
+                    <td style="font-size:0.85rem;max-width:340px;">
+                        ${reasonsHtml}
+                        ${extsBadge}
                     </td>
+                    <td>${statusBadge}</td>
+                    <td style="font-size:0.8rem;">${formatDate(a.created_at)}</td>
+                    <td>${actionButtons}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -914,7 +990,7 @@ async function loadSecurityCenter() {
                 btn.addEventListener("click", async () => {
                     const alertId = btn.dataset.alertId;
                     try {
-                        await api.dismissSecurityAlert(alertId);
+                        await api.dismissSecurityAlert(alertId, "Dismissed via Security Center dashboard");
                         showToast("Security alert dismissed.", "info");
                         loadSecurityCenter();
                     } catch (e) {
@@ -922,11 +998,64 @@ async function loadSecurityCenter() {
                     }
                 });
             });
+
+            // Bind resolve buttons
+            tbody.querySelectorAll(".resolve-alert-btn").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const alertId = btn.dataset.alertId;
+                    try {
+                        const res = await api.resolveSecurityAlert(alertId, "Threat verified resolved and safe", true);
+                        showToast(`Alert resolved! ${res.unlocked_snapshots || 0} snapshot(s) unlocked.`, "success");
+                        loadSecurityCenter();
+                    } catch (e) {
+                        showToast("Could not resolve alert: " + e.message, "error");
+                    }
+                });
+            });
         }
 
-        // 2. Fetch Audit Logs
+        // 3. Bind Filter change
+        if (filterSelect && !filterSelect.dataset.bound) {
+            filterSelect.dataset.bound = "true";
+            filterSelect.addEventListener("change", () => {
+                loadSecurityCenter();
+            });
+        }
+
+        // 4. Bind Simulation Button
+        const simBtn = document.getElementById("run-sim-attack-btn");
+        if (simBtn && !simBtn.dataset.bound) {
+            simBtn.dataset.bound = "true";
+            simBtn.addEventListener("click", async () => {
+                const scenarioSelect = document.getElementById("sim-scenario-select");
+                const scenario = scenarioSelect ? scenarioSelect.value : "mass_encryption";
+                const feedbackEl = document.getElementById("sim-status-feedback");
+                simBtn.disabled = true;
+                simBtn.textContent = "Testing...";
+                if (feedbackEl) feedbackEl.textContent = "Creating isolated sandbox files and running multi-signal engine...";
+
+                try {
+                    const simRes = await api.simulateAttack(scenario);
+                    const risk = simRes.analysis.risk_score;
+                    const level = simRes.analysis.alert_level;
+                    if (feedbackEl) {
+                        feedbackEl.innerHTML = `<strong>Result:</strong> Risk Score ${risk}/100 (${level}) — ${simRes.sandbox_files_created} sandbox files tested. Temp files safely deleted.`;
+                    }
+                    showToast(`Simulation complete: Risk ${risk}/100 (${level})`, level === "NORMAL" ? "info" : "warning");
+                    await loadSecurityCenter();
+                } catch (e) {
+                    if (feedbackEl) feedbackEl.textContent = "Simulation error: " + e.message;
+                    showToast("Simulation failed: " + e.message, "error");
+                } finally {
+                    simBtn.disabled = false;
+                    simBtn.textContent = "⚡ Run Safe Simulation";
+                }
+            });
+        }
+
+        // 5. Fetch Audit Logs
         const auditData = await api.getAuditLogs(30);
-        const logs = auditData.logs || [];
+        const logs = auditData.audit_logs || auditData.logs || [];
         const auditTbody = document.getElementById("audit-logs-table-body");
         auditTbody.innerHTML = "";
 
@@ -935,15 +1064,17 @@ async function loadSecurityCenter() {
         } else {
             logs.forEach(l => {
                 const tr = document.createElement("tr");
-                const prevHashShort = l.previous_hash ? `${l.previous_hash.substring(0, 10)}...` : '0000000000...';
-                const curHashShort = l.entry_hash ? `${l.entry_hash.substring(0, 12)}...` : '-';
+                const prev = l.prev_hash || l.previous_hash || "";
+                const cur = l.current_hash || l.entry_hash || "";
+                const prevHashShort = prev ? `${prev.substring(0, 10)}...` : '0000000000...';
+                const curHashShort = cur ? `${cur.substring(0, 12)}...` : '-';
                 tr.innerHTML = `
                     <td><code>${l.id.substring(0, 6)}</code></td>
-                    <td><strong>${l.event_type}</strong></td>
-                    <td>${escapeHTML(l.action)}</td>
-                    <td><span class="badge badge-optimal">${l.severity}</span></td>
-                    <td><span class="audit-hash-code" title="${l.previous_hash}">${prevHashShort}</span></td>
-                    <td><span class="audit-hash-code" title="${l.entry_hash}">${curHashShort}</span></td>
+                    <td><strong>${escapeHTML(l.event_type)}</strong></td>
+                    <td>${escapeHTML(l.action || "")}</td>
+                    <td><span class="badge badge-optimal">${escapeHTML(l.severity || "INFO")}</span></td>
+                    <td><span class="audit-hash-code" title="${prev}">${prevHashShort}</span></td>
+                    <td><span class="audit-hash-code" title="${cur}">${curHashShort}</span></td>
                     <td>${formatDate(l.created_at)}</td>
                 `;
                 auditTbody.appendChild(tr);
@@ -952,11 +1083,18 @@ async function loadSecurityCenter() {
 
         // Bind Entropy scan button
         const scanBtn = document.getElementById("run-entropy-scan-btn");
-        if (scanBtn) {
+        if (scanBtn && !scanBtn.dataset.bound) {
+            scanBtn.dataset.bound = "true";
             scanBtn.onclick = () => {
                 showToast("Continuous real-time Shannon entropy monitoring is active across all file uploads.", "info");
             };
         }
+
+    } catch (err) {
+        console.error("Security Center load error:", err);
+        showToast("Could not load security center: " + err.message, "error");
+    }
+}
 
     } catch (err) {
         console.error("Security Center load error:", err);
