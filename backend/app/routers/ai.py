@@ -112,6 +112,55 @@ def confirm_ai_action(
             "lock_until": snap.lock_until.isoformat() if snap.lock_until else None
         }
 
+    # 3. RESTORE_FILE
+    elif action_type == "RESTORE_FILE":
+        from pathlib import Path
+        from backend.app.models import SnapshotFile
+        from backend.app.services.restore_service import restore_single_snapshot_file
+
+        snapshot_id = payload.get("snapshot_id")
+        relative_path = payload.get("relative_path")
+        destination_dir = payload.get("destination_dir") or "./restored"
+        conflict_strategy = payload.get("conflict_strategy", "rename")
+
+        snap = db.query(Snapshot).filter(Snapshot.id == snapshot_id, Snapshot.user_id == current_user.id).first()
+        if not snap:
+            raise HTTPException(status_code=404, detail="Snapshot not found or unauthorized.")
+
+        snap_file = db.query(SnapshotFile).filter(
+            SnapshotFile.snapshot_id == snapshot_id,
+            SnapshotFile.relative_path == relative_path
+        ).first()
+        if not snap_file:
+            raise HTTPException(status_code=404, detail=f"File '{relative_path}' not found in snapshot #{snap.snapshot_number}.")
+
+        dest_path = Path(destination_dir).resolve()
+        dest_path.mkdir(parents=True, exist_ok=True)
+
+        res = restore_single_snapshot_file(snap_file, str(dest_path), conflict_strategy, storage)
+        execution_result = {
+            "status": "SUCCESS",
+            "message": f"Successfully restored '{snap_file.file_name}' from Snapshot #{snap.snapshot_number} to '{res.get('path')}'.",
+            "file_name": snap_file.file_name,
+            "restored_path": res.get("path"),
+            "bytes_restored": res.get("bytes_restored"),
+            "sha256_verified": res.get("sha256_verified", True),
+            "snapshot_id": snap.id,
+            "snapshot_number": snap.snapshot_number
+        }
+
+    # 4. VERIFY_SNAPSHOT
+    elif action_type == "VERIFY_SNAPSHOT":
+        from backend.app.services.dr_service import run_synthetic_recovery_drill
+
+        snapshot_id = payload.get("snapshot_id")
+        drill = run_synthetic_recovery_drill(snapshot_id, current_user.id, db, storage)
+        execution_result = {
+            "status": "SUCCESS" if drill.get("status") == "PASSED" else "FAILED",
+            "message": f"Snapshot integrity verification drill completed with status: {drill.get('status')}.",
+            "drill": drill
+        }
+
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported action type: {action_type}")
 

@@ -153,6 +153,8 @@ def record_audit_log(
     log_entry = AuditLog(
         user_id=user_id,
         event_type=event_type,
+        action=action,
+        status="SUCCESS",
         severity=severity,
         ip_address=ip_address,
         details=details_str,

@@ -175,6 +175,8 @@ class AuditLog(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     event_type = Column(String(50), nullable=False) # AUTH, BACKUP, RESTORE, DELETE, AI_ACTION, SECURITY
+    action = Column(String(100), default="", nullable=True)
+    status = Column(String(50), default="SUCCESS", nullable=True)
     severity = Column(String(20), default="INFO", nullable=False) # INFO, WARNING, CRITICAL
     ip_address = Column(String(45), default="127.0.0.1")
     user_agent = Column(String(255), default="")

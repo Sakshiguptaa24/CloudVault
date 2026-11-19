@@ -265,27 +265,66 @@ def tool_propose_trigger_backup(user_id: str, plan_id: Optional[str], db: Sessio
         "proposed_action": payload
     }
 
-def tool_propose_restore_file(user_id: str, snapshot_id: str, relative_path: str, destination_dir: str, db: Session) -> Dict[str, Any]:
+def tool_propose_restore_file(
+    user_id: str,
+    snapshot_id: Optional[str] = None,
+    relative_path: Optional[str] = None,
+    destination_dir: Optional[str] = None,
+    db: Session = None
+) -> Dict[str, Any]:
     """Propose restoring a file. Requires user confirmation."""
-    snap = db.query(Snapshot).filter(Snapshot.id == snapshot_id, Snapshot.user_id == user_id).first()
-    if not snap:
-        return {"status": "error", "message": "Snapshot not found or does not belong to user."}
+    if not destination_dir:
+        destination_dir = "./restored"
 
-    file_entry = db.query(SnapshotFile).filter(
-        SnapshotFile.snapshot_id == snapshot_id,
-        SnapshotFile.relative_path == relative_path
-    ).first()
+    # If specific snapshot not provided, find the most recent snapshot containing files
+    if snapshot_id:
+        snap = db.query(Snapshot).filter(Snapshot.id == snapshot_id, Snapshot.user_id == user_id).first()
+    else:
+        snap = db.query(Snapshot).join(SnapshotFile).filter(
+            Snapshot.user_id == user_id,
+            SnapshotFile.is_deleted == False
+        ).order_by(Snapshot.created_at.desc()).first()
+        if not snap:
+            snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
+
+    if not snap:
+        return {"status": "error", "message": "No snapshots available to restore from. Please run a backup first."}
+
+    file_entry = None
+    if relative_path:
+        file_entry = db.query(SnapshotFile).filter(
+            SnapshotFile.snapshot_id == snap.id,
+            SnapshotFile.relative_path == relative_path,
+            SnapshotFile.is_deleted == False
+        ).first()
+        if not file_entry:
+            clean_name = os.path.basename(relative_path).lower()
+            file_entry = db.query(SnapshotFile).filter(
+                SnapshotFile.snapshot_id == snap.id,
+                func.lower(SnapshotFile.file_name) == clean_name,
+                SnapshotFile.is_deleted == False
+            ).first()
 
     if not file_entry:
-        return {"status": "error", "message": f"File '{relative_path}' not found in snapshot #{snap.snapshot_number}."}
+        file_entry = db.query(SnapshotFile).filter(
+            SnapshotFile.snapshot_id == snap.id,
+            SnapshotFile.is_deleted == False
+        ).order_by(SnapshotFile.modified_at.desc()).first()
 
+    if not file_entry:
+        return {"status": "error", "message": f"No files found in snapshot #{snap.snapshot_number} ({snap.name}) to restore."}
+
+    target_rel_path = file_entry.relative_path
     payload = {
         "snapshot_id": snap.id,
+        "snapshot_number": snap.snapshot_number,
         "snapshot_name": snap.name,
-        "relative_path": relative_path,
+        "relative_path": target_rel_path,
+        "file_name": file_entry.file_name,
+        "file_size": file_entry.file_size,
         "destination_dir": destination_dir,
         "action": "RESTORE_FILE",
-        "description": f"Restore '{relative_path}' from Snapshot #{snap.snapshot_number} to '{destination_dir}'."
+        "description": f"Restore '{file_entry.file_name}' ({round(file_entry.file_size / 1024, 1)} KB) from Snapshot #{snap.snapshot_number} to '{destination_dir}' with SHA-256 verification."
     }
 
     token, token_meta = create_confirmation_token(user_id, "RESTORE_FILE", snap.id, payload, db)
@@ -293,6 +332,34 @@ def tool_propose_restore_file(user_id: str, snapshot_id: str, relative_path: str
     return {
         "status": "requires_confirmation",
         "action_type": "RESTORE_FILE",
+        "confirmation_token": token,
+        "expires_in_seconds": 300,
+        "proposed_action": payload
+    }
+
+def tool_propose_verify_snapshot(user_id: str, snapshot_id: Optional[str], db: Session) -> Dict[str, Any]:
+    """Propose running synthetic recovery drill to verify snapshot integrity."""
+    if snapshot_id:
+        snap = db.query(Snapshot).filter(Snapshot.id == snapshot_id, Snapshot.user_id == user_id).first()
+    else:
+        snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
+
+    if not snap:
+        return {"status": "error", "message": "No snapshots available to verify. Please run a backup first."}
+
+    payload = {
+        "snapshot_id": snap.id,
+        "snapshot_number": snap.snapshot_number,
+        "snapshot_name": snap.name,
+        "action": "VERIFY_SNAPSHOT",
+        "description": f"Execute synthetic recovery drill to verify bit-level SHA-256 integrity for Snapshot #{snap.snapshot_number} ({snap.name})."
+    }
+
+    token, token_meta = create_confirmation_token(user_id, "VERIFY_SNAPSHOT", snap.id, payload, db)
+
+    return {
+        "status": "requires_confirmation",
+        "action_type": "VERIFY_SNAPSHOT",
         "confirmation_token": token,
         "expires_in_seconds": 300,
         "proposed_action": payload

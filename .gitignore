@@ -9,6 +9,7 @@ venv/
 *.db
 *.sqlite3
 data/
+restored/
 .env
 cloudflared.exe
 .pytest_cache/

@@ -68,7 +68,7 @@ def run_migrations(db_path: str = None):
         if not column_exists("storage_objects", "encryption_nonce"):
             cursor.execute("ALTER TABLE storage_objects ADD COLUMN encryption_nonce VARCHAR(64)")
 
-    # 5. Create 'audit_logs' table
+    # 5. Create or update 'audit_logs' table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS audit_logs (
         id VARCHAR(36) PRIMARY KEY,
@@ -84,6 +84,17 @@ def run_migrations(db_path: str = None):
         FOREIGN KEY(user_id) REFERENCES users(id)
     )
     """)
+    if table_exists("audit_logs"):
+        if not column_exists("audit_logs", "severity"):
+            cursor.execute("ALTER TABLE audit_logs ADD COLUMN severity VARCHAR(20) DEFAULT 'INFO'")
+        if not column_exists("audit_logs", "user_agent"):
+            cursor.execute("ALTER TABLE audit_logs ADD COLUMN user_agent VARCHAR(255) DEFAULT ''")
+        if not column_exists("audit_logs", "details"):
+            cursor.execute("ALTER TABLE audit_logs ADD COLUMN details TEXT DEFAULT '{}'")
+        if not column_exists("audit_logs", "prev_hash"):
+            cursor.execute("ALTER TABLE audit_logs ADD COLUMN prev_hash VARCHAR(64) DEFAULT ''")
+        if not column_exists("audit_logs", "current_hash"):
+            cursor.execute("ALTER TABLE audit_logs ADD COLUMN current_hash VARCHAR(64) DEFAULT ''")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)")
 

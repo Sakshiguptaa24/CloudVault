@@ -1,7 +1,11 @@
 import os
 import re
+import json
+import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
+from urllib import request as urllib_request
+from urllib.error import URLError, HTTPError
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
@@ -16,8 +20,12 @@ from backend.app.ai.tools import (
     tool_check_system_health,
     tool_get_backup_recommendations,
     tool_propose_trigger_backup,
-    tool_propose_lock_snapshot
+    tool_propose_lock_snapshot,
+    tool_propose_restore_file,
+    tool_propose_verify_snapshot
 )
+
+logger = logging.getLogger("cloudvault.ai")
 
 class BaseAIProvider(ABC):
     """Abstract AI Provider for CloudVault Assistant."""
@@ -27,12 +35,15 @@ class BaseAIProvider(ABC):
         """Process user natural language prompt and return assistant response + any action cards."""
         pass
 
+
 class RuleBasedLocalLLMProvider(BaseAIProvider):
     """
     Offline, zero-cost, high-reliability semantic AI engine.
     Analyzes user intent, extracts parameters, executes scoped domain tools,
     and formats intelligent, grounded natural language responses.
     """
+
+    FALLBACK_NOTICE = "\n\n*(⚡ CloudVault Deterministic Local Semantic Engine — Air-Gapped Fallback)*"
 
     def process_query(self, user_id: str, prompt: str, db: Session) -> Dict[str, Any]:
         p = prompt.strip().lower()
@@ -50,18 +61,22 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     f"with a total of **{snaps} point-in-time snapshot(s)**.\n\n"
                     f"- All files are indexed and addressable via immutable SHA-256 fingerprints.\n"
                     f"- Deduplication ensures identical files share physical storage space."
+                    f"{self.FALLBACK_NOTICE}"
                 ),
                 "data": data,
                 "action_card": None
             }
 
-        # 2. Recent Snapshots Query
-        if any(w in p for w in ["last five", "recent backup", "recent snapshot", "show my backup", "list snapshot", "snapshots"]):
+        # 2. Recent Snapshots / Latest Five Backups Query
+        if any(w in p for w in ["last five", "recent backup", "recent snapshot", "show my backup", "list snapshot", "snapshots", "latest backup"]):
             data = tool_get_recent_snapshots(user_id, db, limit=5)
             snaps = data["snapshots"]
             if not snaps:
                 return {
-                    "response": "You currently do not have any backup snapshots recorded. Click **Execute Backup Now** on your dashboard to create your first point-in-time snapshot!",
+                    "response": (
+                        "You currently do not have any backup snapshots recorded. Click **Execute Backup Now** on your dashboard to create your first point-in-time snapshot!"
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
                     "data": data,
                     "action_card": None
                 }
@@ -74,14 +89,15 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                 lines.append(f"- **#{s['snapshot_number']} {s['name']}** — {s['total_files']} files ({size_mb} MB) at `{dt}` [{lock_badge}]")
             
             lines.append("\nYou can restore individual files or entire folders from any of these snapshots via the **Snapshot Time Machine** tab.")
+            lines.append(self.FALLBACK_NOTICE)
             return {
                 "response": "\n".join(lines),
                 "data": data,
                 "action_card": None
             }
 
-        # 3. Failed Backups Query
-        if any(w in p for w in ["failed", "failure", "broken", "error", "interrupted"]):
+        # 3. Failed Backups Query & Explanation
+        if any(w in p for w in ["failed", "failure", "broken", "error", "interrupted", "why did backup fail"]):
             data = tool_get_failed_backups(user_id, db, days=7)
             failed = data["failed_jobs"]
             if not failed:
@@ -90,6 +106,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                         f"### ✅ Backup Execution Status\n\n"
                         f"Great news! There have been **0 failed backups** in the past {data['period_days']} days.\n"
                         f"All scheduled and manual backup executions completed successfully."
+                        f"{self.FALLBACK_NOTICE}"
                     ),
                     "data": data,
                     "action_card": None
@@ -98,14 +115,15 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
             for f in failed:
                 lines.append(f"- **Job `{f['job_id'][:8]}`** ({f['trigger_type']}) at `{f['started_at']}`: *{f['error_message']}*")
             lines.append("\n**Recommendation:** Check your local directory permissions and verify that source folders are accessible.")
+            lines.append(self.FALLBACK_NOTICE)
             return {
                 "response": "\n".join(lines),
                 "data": data,
                 "action_card": None
             }
 
-        # 4. Storage Savings / Deduplication Query
-        if any(w in p for w in ["save", "dedup", "deduplication", "compression", "storage used"]):
+        # 4. Storage Savings, Deduplication & Storage Usage Query
+        if any(w in p for w in ["save", "dedup", "deduplication", "compression", "storage used", "storage usage", "explain my storage", "storage report"]):
             data = tool_get_storage_savings(user_id, db)
             saved_mb = round(data["bytes_saved"] / (1024 * 1024), 2)
             logical_mb = round(data["logical_uncompressed_bytes"] / (1024 * 1024), 2)
@@ -118,13 +136,14 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     f"- **Bandwidth & Storage Saved:** **{saved_mb} MB** (**{data['savings_percentage']}%** reduction)\n"
                     f"- **Unique SHA-256 Blocks:** {data['unique_storage_objects']} objects\n\n"
                     f"Content-Addressable Storage (CAS) ensures identical files or repeated versions transfer **0 bytes** over the network."
+                    f"{self.FALLBACK_NOTICE}"
                 ),
                 "data": data,
                 "action_card": None
             }
 
         # 5. Unprotected Files Query
-        if any(w in p for w in ["unprotected", "not backed up", "missing", "pending file"]):
+        if any(w in p for w in ["unprotected", "not backed up", "missing", "pending file", "not been backed up recently"]):
             data = tool_get_unprotected_files(user_id, db)
             unprot = data["unprotected_files"]
             if not unprot:
@@ -132,6 +151,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     "response": (
                         "### 📂 File Protection Status\n\n"
                         "All local files in your configured backup directories are fully synced and protected in your latest snapshots!"
+                        f"{self.FALLBACK_NOTICE}"
                     ),
                     "data": data,
                     "action_card": None
@@ -141,8 +161,8 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                 name = os.path.basename(u["file_path"])
                 lines.append(f"- `{name}` in **{u['plan_name']}** (Modified: {u['modified_at'][:19]})")
             lines.append("\nWould you like me to trigger an immediate backup to protect these changes?")
+            lines.append(self.FALLBACK_NOTICE)
             
-            # Offer action proposal card
             action_proposal = tool_propose_trigger_backup(user_id, None, db)
             return {
                 "response": "\n".join(lines),
@@ -162,6 +182,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                         "- **Active Alerts:** 0\n"
                         "- **Anomaly Detection:** Shannon entropy and extension monitors are active.\n\n"
                         "No suspicious encryption bursts or ransomware signatures have been detected."
+                        f"{self.FALLBACK_NOTICE}"
                     ),
                     "data": data,
                     "action_card": None
@@ -170,6 +191,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
             for a in alerts:
                 lines.append(f"- **{a['alert_level']} (Score: {a['risk_score']}/100)**: {a['suspicious_files_count']} suspicious files (Avg entropy: {a['average_entropy']} bits/byte).")
             lines.append("\n**Action taken:** Automatic snapshot lock and quarantine have been engaged to protect previous clean recovery points.")
+            lines.append(self.FALLBACK_NOTICE)
             return {
                 "response": "\n".join(lines),
                 "data": data,
@@ -177,7 +199,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
             }
 
         # 7. System Health Query
-        if any(w in p for w in ["health", "healthy", "status", "system status"]):
+        if any(w in p for w in ["health", "healthy", "system status", "backup system healthy"]):
             data = tool_check_system_health(user_id, db)
             badge = "🟢" if data["health_status"] == "HEALTHY" else ("🟡" if data["health_status"] == "WARNING" else "🔴")
             return {
@@ -188,30 +210,99 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     f"- **Recent Failed Jobs:** {data['recent_failures_count']}\n"
                     f"- **Active Security Alerts:** {data['active_security_alerts_count']}\n\n"
                     f"{'Your backup infrastructure is operating normally.' if data['health_score'] >= 80 else 'Attention recommended: review recent job failures or security alerts.'}"
+                    f"{self.FALLBACK_NOTICE}"
                 ),
                 "data": data,
                 "action_card": None
             }
 
         # 8. Recommendations Query
-        if any(w in p for w in ["recommend", "improve", "advice", "suggestion", "best practice"]):
+        if any(w in p for w in ["recommend", "improve", "advice", "suggestion", "best practice", "improve my backup protection"]):
             data = tool_get_backup_recommendations(user_id, db)
             recs = data["recommendations"]
             lines = ["### 💡 Intelligent Backup Recommendations\n"]
             for r in recs:
                 lines.append(f"- {r}")
+            lines.append(self.FALLBACK_NOTICE)
             return {
                 "response": "\n".join(lines),
                 "data": data,
                 "action_card": None
             }
 
-        # 9. Controlled Action: Propose Trigger Backup
+        # 9. Controlled Action: Propose File Restore
+        if any(w in p for w in ["restore a file", "restore my file", "restore file", "restore", "recover file", "bring back"]):
+            # Extract potential filename if given (e.g., 'restore file foo.txt' or 'restore .gitignore')
+            match = re.search(r'restore\s+(?:file\s+)?([a-zA-Z0-9_\-\.\/]+)', prompt, re.IGNORECASE)
+            target_file = match.group(1).strip() if match else None
+            if target_file and target_file.lower() in ["a", "my", "the", "file", "snapshot", "now", "please"]:
+                target_file = None
+
+            action_proposal = tool_propose_restore_file(
+                user_id=user_id,
+                snapshot_id=None,
+                relative_path=target_file,
+                destination_dir="./restored",
+                db=db
+            )
+
+            if action_proposal.get("status") == "error":
+                return {
+                    "response": (
+                        f"### ⚠️ Restoration Unavailable\n\n"
+                        f"{action_proposal.get('message')}"
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
+                    "data": None,
+                    "action_card": None
+                }
+
+            proposed = action_proposal["proposed_action"]
+            file_kb = round(proposed.get("file_size", 0) / 1024, 2)
+            return {
+                "response": (
+                    f"### 📥 File Restoration Request Prepared\n\n"
+                    f"I have prepared an authorized point-in-time restoration for **`{proposed['file_name']}`**.\n\n"
+                    f"- **Source Snapshot:** #{proposed['snapshot_number']} (*{proposed['snapshot_name']}*)\n"
+                    f"- **Relative Path:** `{proposed['relative_path']}`\n"
+                    f"- **File Size:** {file_kb} KB\n"
+                    f"- **Target Destination:** `{proposed['destination_dir']}`\n"
+                    f"- **Cryptographic Integrity:** Pre-restore and post-restore SHA-256 verification active.\n\n"
+                    f"Under CloudVault zero-trust safety policy, sensitive restore operations require explicit human authorization. "
+                    f"Please confirm execution using the card below:"
+                    f"{self.FALLBACK_NOTICE}"
+                ),
+                "data": proposed,
+                "action_card": action_proposal
+            }
+
+        # 10. Controlled Action: Propose Verify Snapshot
+        if any(w in p for w in ["verify snapshot", "verify backup", "check integrity", "recovery drill", "verify recovery"]):
+            action_proposal = tool_propose_verify_snapshot(user_id=user_id, snapshot_id=None, db=db)
+            if action_proposal.get("status") == "error":
+                return {
+                    "response": f"Unable to prepare verification: {action_proposal.get('message')}{self.FALLBACK_NOTICE}",
+                    "data": None,
+                    "action_card": None
+                }
+            return {
+                "response": (
+                    "### 🔍 Snapshot Integrity Drill Prepared\n\n"
+                    "I have prepared a non-destructive synthetic recovery drill to mathematically verify SHA-256 hash fidelity "
+                    "for your latest snapshot.\n\n"
+                    "Please confirm execution to start the verification drill:"
+                    f"{self.FALLBACK_NOTICE}"
+                ),
+                "data": None,
+                "action_card": action_proposal
+            }
+
+        # 11. Controlled Action: Propose Trigger Backup
         if any(w in p for w in ["run backup", "trigger backup", "create backup", "take a backup", "backup now"]):
             action_proposal = tool_propose_trigger_backup(user_id, None, db)
             if action_proposal.get("status") == "error":
                 return {
-                    "response": f"Unable to prepare backup: {action_proposal.get('message')}",
+                    "response": f"Unable to prepare backup: {action_proposal.get('message')}{self.FALLBACK_NOTICE}",
                     "data": None,
                     "action_card": None
                 }
@@ -220,18 +311,18 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     "### ⚡ Backup Request Prepared\n\n"
                     "I have prepared an on-demand backup execution request for your active plan. "
                     "For security and audit compliance, please review and confirm the action card below:"
+                    f"{self.FALLBACK_NOTICE}"
                 ),
                 "data": None,
                 "action_card": action_proposal
             }
 
-        # 10. Controlled Action: Propose Lock Snapshot
+        # 12. Controlled Action: Propose Lock Snapshot
         if any(w in p for w in ["lock snapshot", "immutable", "worm lock"]):
-            # Get latest snapshot
             latest_snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
             if not latest_snap:
                 return {
-                    "response": "No snapshots available to lock. Please run a backup first.",
+                    "response": f"No snapshots available to lock. Please run a backup first.{self.FALLBACK_NOTICE}",
                     "data": None,
                     "action_card": None
                 }
@@ -242,6 +333,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     f"I have prepared a WORM immutable retention lock for **Snapshot #{latest_snap.snapshot_number} ({latest_snap.name})**. "
                     f"Once confirmed, this snapshot cannot be modified or deleted by anyone until the retention date. "
                     f"Please confirm execution below:"
+                    f"{self.FALLBACK_NOTICE}"
                 ),
                 "data": None,
                 "action_card": action_proposal
@@ -255,18 +347,110 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                 "**Try asking me:**\n"
                 "- *'How many files are currently protected?'*\n"
                 "- *'Show my last five backups.'*\n"
-                "- *'Which backups failed this week?'*\n"
+                "- *'Which backups failed?'*\n"
                 "- *'How much storage have I saved through deduplication?'*\n"
+                "- *'Which files have not been backed up recently?'*\n"
                 "- *'Is my backup system healthy?'*\n"
-                "- *'Explain my latest security alert.'*\n"
-                "- *'Trigger an on-demand backup.'*"
+                "- *'How can I improve my backup protection?'*\n"
+                "- *'Restore a file.'*\n"
+                "- *'Verify a snapshot.'*\n"
+                "- *'Create a backup.'*\n"
+                "- *'Lock a snapshot with WORM retention.'*"
+                f"{self.FALLBACK_NOTICE}"
             ),
             "data": None,
             "action_card": None
         }
 
+
+class ExternalLLMProvider(BaseAIProvider):
+    """
+    External LLM Provider connecting to OpenAI, Gemini, or an OpenAI-compatible API.
+    Uses ground-truth metadata injected as context and gracefully falls back to
+    RuleBasedLocalLLMProvider if external service is unreachable or credentials are unconfigured.
+    """
+
+    def __init__(self, api_key: str, model: str = None, base_url: str = None):
+        self.api_key = api_key
+        self.model = model or os.environ.get("LLM_MODEL", "gpt-4o-mini")
+        self.base_url = (base_url or os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1")).rstrip("/")
+        self.fallback = RuleBasedLocalLLMProvider()
+
+    def process_query(self, user_id: str, prompt: str, db: Session) -> Dict[str, Any]:
+        p = prompt.strip().lower()
+
+        # If user asks for an explicit action, use safe deterministic rule tool proposals
+        if any(w in p for w in ["restore", "recover", "lock", "trigger backup", "create backup", "verify"]):
+            logger.info("Routing action proposal to deterministic security governor.")
+            return self.fallback.process_query(user_id, prompt, db)
+
+        # For informational queries, gather grounded metadata
+        try:
+            prot_summary = tool_get_protected_files_summary(user_id, db)
+            storage_savings = tool_get_storage_savings(user_id, db)
+            health = tool_check_system_health(user_id, db)
+
+            system_context = (
+                f"You are the CloudVault AI Copilot. CloudVault is a secure cloud backup and disaster recovery platform. "
+                f"Ground your answer strictly in the user's actual backup data: "
+                f"- Protected Files: {prot_summary['protected_files_count']} across {prot_summary['active_plans_count']} plans\n"
+                f"- Snapshots: {prot_summary['total_snapshots_count']}\n"
+                f"- Logical Data: {round(storage_savings['logical_uncompressed_bytes'] / (1024*1024), 2)} MB\n"
+                f"- Physical Stored: {round(storage_savings['physical_stored_bytes'] / (1024*1024), 2)} MB\n"
+                f"- Space Saved: {round(storage_savings['bytes_saved'] / (1024*1024), 2)} MB ({storage_savings['savings_percentage']}%)\n"
+                f"- System Health Score: {health['health_score']}/100 ({health['health_status']})\n"
+                f"Answer concisely with markdown formatting."
+            )
+
+            req_payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_context},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+
+            req = urllib_request.Request(
+                f"{self.base_url}/chat/completions",
+                data=json.dumps(req_payload).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+
+            with urllib_request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                reply = data["choices"][0]["message"]["content"]
+                reply += f"\n\n*(🤖 External LLM Engine: {self.model})*"
+                return {
+                    "response": reply,
+                    "data": {"model": self.model},
+                    "action_card": None
+                }
+
+        except Exception as e:
+            logger.warning(f"External LLM invocation failed or timed out ({e}). Falling back to Local Rule-Based Engine.")
+            result = self.fallback.process_query(user_id, prompt, db)
+            result["response"] += f"\n\n> *[Notice: External LLM was unavailable ({e.__class__.__name__}). Used Local Semantic Fallback.]*"
+            return result
+
+
 def get_ai_provider() -> BaseAIProvider:
-    """Factory returning configured AI Provider."""
-    # When external LLM is configured via environment variables, return ExternalLLMProvider
-    # Otherwise, default to reliable, zero-cost RuleBasedLocalLLMProvider
+    """
+    Factory returning configured AI Provider.
+    If external LLM credentials are provided and AI_PROVIDER is set to 'llm',
+    returns ExternalLLMProvider. Otherwise, defaults to the deterministic,
+    offline, zero-cost RuleBasedLocalLLMProvider.
+    """
+    ai_provider_mode = os.environ.get("AI_PROVIDER", getattr(settings, "AI_PROVIDER", "local_rules")).lower()
+    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+
+    if ai_provider_mode == "llm" and api_key:
+        return ExternalLLMProvider(api_key=api_key)
+
     return RuleBasedLocalLLMProvider()

@@ -1,9 +1,14 @@
 import pytest
 import json
+import gzip
+import hashlib
+from pathlib import Path
 from datetime import datetime, timedelta
 from backend.app.models import User, BackupPlan, Snapshot, SnapshotFile, StorageObject, BackupJob, AuditLog
 from backend.app.routers.ai import query_ai_assistant, confirm_ai_action, get_ai_capabilities, AIQueryRequest, AIConfirmActionRequest
 from backend.app.ai.security import create_confirmation_token, validate_and_consume_token, record_audit_log
+from backend.app.ai.provider import get_ai_provider, ExternalLLMProvider, RuleBasedLocalLLMProvider
+from backend.app.storage import get_storage_provider
 from fastapi import HTTPException
 
 def test_ai_capabilities():
@@ -144,3 +149,159 @@ def test_ai_audit_log_hash_chaining(db_session):
     log2 = record_audit_log(user.id, "TEST_EVENT_2", "ACTION_2", {"key": "val2"}, db_session)
     assert log2.prev_hash == log1.current_hash
 
+def test_ai_milestone_restore_file_flow(db_session, tmp_path):
+    """
+    Demonstrate Milestone 1:
+    1. Authenticated user asks 'How many files are currently protected?'
+    2. User asks to restore a file.
+    3. Assistant displays exact proposed restoration with short-lived HMAC token.
+    4. User explicitly confirms execution.
+    5. Backend validates authorization, checks single-use nonce, extracts & verifies SHA-256, writes file.
+    6. Operation appears in audit log with hash-chaining.
+    7. Replay attack attempt on confirmation token fails.
+    """
+    storage = get_storage_provider()
+    user = User(email="milestone_user@university.edu", password_hash="hash", full_name="Milestone User")
+    db_session.add(user)
+    db_session.commit()
+
+    # Create plan and snapshot
+    plan = BackupPlan(user_id=user.id, plan_name="Thesis Defense", source_directories=json.dumps(["."]))
+    db_session.add(plan)
+    db_session.commit()
+
+    snap = Snapshot(
+        plan_id=plan.id,
+        user_id=user.id,
+        snapshot_number=1,
+        name="Final Thesis Submission",
+        total_files=1,
+        total_uncompressed_bytes=100,
+        total_stored_bytes=80
+    )
+    db_session.add(snap)
+    db_session.commit()
+
+    # Put a real compressed file into storage
+    content = b"CloudVault 2.0 AI Milestone Verified Data Payload"
+    sha = hashlib.sha256(content).hexdigest()
+    compressed = gzip.compress(content)
+    storage_path = f"objects/{sha}"
+    storage.upload_bytes(compressed, storage_path)
+
+    so = StorageObject(
+        user_id=user.id,
+        sha256_hash=sha,
+        original_size=len(content),
+        compressed_size=len(compressed),
+        compression_algo="gzip",
+        storage_provider="mock",
+        storage_path=storage_path,
+        ref_count=1
+    )
+    db_session.add(so)
+    db_session.commit()
+
+    sf = SnapshotFile(
+        snapshot_id=snap.id,
+        storage_object_id=so.id,
+        relative_path="documents/thesis.pdf",
+        file_name="thesis.pdf",
+        file_size=len(content),
+        modified_at=datetime.utcnow()
+    )
+    db_session.add(sf)
+    db_session.commit()
+
+    # Step 1: User asks: "How many files are currently protected?"
+    req1 = AIQueryRequest(prompt="How many files are currently protected?")
+    res1 = query_ai_assistant(req1, current_user=user, db=db_session)
+    assert res1["action_card"] is None
+    assert "1 files" in res1["response"] or res1["data"]["protected_files_count"] == 1
+
+    # Step 2: User asks to restore a file
+    req2 = AIQueryRequest(prompt="Please restore a file for me.")
+    res2 = query_ai_assistant(req2, current_user=user, db=db_session)
+    assert res2["action_card"] is not None
+    action_card = res2["action_card"]
+    assert action_card["action_type"] == "RESTORE_FILE"
+    assert "thesis.pdf" in res2["response"]
+    assert action_card["proposed_action"]["file_name"] == "thesis.pdf"
+    token = action_card["confirmation_token"]
+    assert token is not None
+
+    # Step 3: User explicitly confirms execution
+    confirm_req = AIConfirmActionRequest(confirmation_token=token)
+    confirm_res = confirm_ai_action(confirm_req, current_user=user, db=db_session)
+
+    assert confirm_res["status"] == "SUCCESS"
+    assert confirm_res["file_name"] == "thesis.pdf"
+    assert confirm_res["sha256_verified"] is True
+    restored_file = Path(confirm_res["restored_path"])
+    assert restored_file.exists()
+    assert restored_file.read_bytes() == content
+
+    # Step 4: Verify operation appears in the audit log
+    audit_entry = db_session.query(AuditLog).filter(
+        AuditLog.user_id == user.id,
+        AuditLog.event_type == "AI_ACTION_EXECUTED"
+    ).order_by(AuditLog.created_at.desc()).first()
+
+    assert audit_entry is not None
+    assert audit_entry.current_hash != ""
+    details = json.loads(audit_entry.details)
+    assert details["action_type"] == "RESTORE_FILE"
+    assert details["result"]["file_name"] == "thesis.pdf"
+
+    # Step 5: Verify anti-replay protection (cannot confirm the same token again)
+    with pytest.raises(HTTPException) as exc:
+        confirm_ai_action(confirm_req, current_user=user, db=db_session)
+    assert exc.value.status_code == 400
+    assert "replay" in exc.value.detail.lower()
+
+def test_ai_all_ten_example_queries(db_session):
+    """Verify all 10 user example queries from prompt are processed cleanly."""
+    user = User(email="all_queries_user@university.edu", password_hash="hash", full_name="Query User")
+    db_session.add(user)
+    db_session.commit()
+
+    plan = BackupPlan(user_id=user.id, plan_name="Work", source_directories=json.dumps(["."]))
+    db_session.add(plan)
+    db_session.commit()
+
+    snap = Snapshot(plan_id=plan.id, user_id=user.id, snapshot_number=1, name="Snap 1", total_files=5, total_uncompressed_bytes=1000, total_stored_bytes=500)
+    db_session.add(snap)
+    db_session.commit()
+
+    queries = [
+        "How many files are currently protected?",
+        "Show my latest five backups.",
+        "Which backups failed?",
+        "How much storage have I saved through deduplication?",
+        "Which files have not been backed up recently?",
+        "Explain my latest backup failure.",
+        "Is my backup system healthy?",
+        "How can I improve my backup protection?",
+        "Show my recent snapshots.",
+        "Explain my storage usage."
+    ]
+
+    for q in queries:
+        req = AIQueryRequest(prompt=q)
+        res = query_ai_assistant(req, current_user=user, db=db_session)
+        assert res is not None
+        assert "response" in res
+        assert len(res["response"]) > 10
+
+def test_ai_external_llm_fallback_resilience(db_session, monkeypatch):
+    """Verify ExternalLLMProvider falls back gracefully to Local Rules when external LLM fails."""
+    user = User(email="llm_user@university.edu", password_hash="hash", full_name="LLM User")
+    db_session.add(user)
+    db_session.commit()
+
+    # Simulate configured LLM provider with invalid URL to test network failure resilience
+    provider = ExternalLLMProvider(api_key="sk-dummy-test-key", base_url="http://127.0.0.1:54321/nonexistent")
+    res = provider.process_query(user.id, "How many files are currently protected?", db_session)
+    assert res is not None
+    assert "Protected Files Summary" in res["response"]
+    assert "Notice: External LLM was unavailable" in res["response"]
