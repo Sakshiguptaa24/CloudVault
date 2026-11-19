@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudVault – Offline</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --accent-hover: #0284c7;
+            --border: #334155;
+            --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+        .offline-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            max-width: 480px;
+            width: 100%;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        .icon {
+            font-size: 3.5rem;
+            margin-bottom: 1.25rem;
+            display: inline-block;
+            animation: pulse 2s infinite ease-in-out;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.9; }
+            50% { transform: scale(1.08); opacity: 1; }
+        }
+        h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+        p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .info-box {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: left;
+            margin-bottom: 1.75rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .info-box ul {
+            padding-left: 1.25rem;
+            margin-top: 0.5rem;
+        }
+        .info-box li {
+            margin-bottom: 0.35rem;
+        }
+        .btn-retry {
+            display: inline-block;
+            width: 100%;
+            background-color: var(--accent);
+            color: #0f172a;
+            border: none;
+            padding: 0.85rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .btn-retry:hover {
+            background-color: var(--accent-hover);
+            color: #fff;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            padding: 0.35rem 0.85rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-card">
+        <div class="icon">📡</div>
+        <div>
+            <span class="status-pill"><span class="status-dot"></span> Disconnected from Network</span>
+        </div>
+        <h1>You Are Offline</h1>
+        <p>
+            CloudVault is unable to communicate with the backup server. Your connection may be dropped or intermittent.
+        </p>
+
+        <div class="info-box">
+            <strong style="color:var(--text-primary);">Network Requirements:</strong>
+            <ul>
+                <li><strong>Cloud Storage & Uploads:</strong> Require live cloud access.</li>
+                <li><strong>Snapshots & Restores:</strong> Require server verification.</li>
+                <li><strong>Security:</strong> Private tokens and file contents are never cached locally to protect your data.</li>
+            </ul>
+        </div>
+
+        <button class="btn-retry" onclick="window.location.reload()">
+            🔄 Check Connection & Reload
+        </button>
+    </div>
+
+    <script>
+        window.addEventListener('online', () => {
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>
+

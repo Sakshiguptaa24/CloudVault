@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="cloudGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="vaultGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  
+  <!-- Background Circle -->
+  <rect width="512" height="512" rx="128" fill="url(#vaultGrad)"/>
+  
+  <!-- Cloud Shape -->
+  <path d="M 390 280 C 420 280 445 255 445 225 C 445 197 425 174 398 171 C 392 125 352 90 305 90 C 275 90 248 104 230 126 C 218 116 202 110 185 110 C 146 110 115 141 115 180 C 115 185 116 189 117 194 C 90 203 70 229 70 260 C 70 299 101 330 140 330 L 390 330 C 418 330 440 308 440 280 Z" fill="url(#cloudGrad)" opacity="0.95" filter="url(#shadow)"/>
+  
+  <!-- Vault / Shield Lock in center -->
+  <rect x="206" y="270" width="100" height="90" rx="16" fill="#f8fafc" filter="url(#shadow)"/>
+  <path d="M 226 270 L 226 235 C 226 218 240 205 256 205 C 272 205 286 218 286 235 L 286 270" fill="none" stroke="#f8fafc" stroke-width="18" stroke-linecap="round"/>
+  <!-- Keyhole -->
+  <circle cx="256" cy="305" r="10" fill="#0f172a"/>
+  <polygon points="252,305 260,305 263,330 249,330" fill="#0f172a"/>
+</svg>
+

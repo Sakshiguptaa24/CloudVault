@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CloudVault – Cloud-Based Backup & Recovery System</title>
+    
+    <!-- PWA & Mobile Meta Tags -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CloudVault">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <!-- Offline Alert Banner -->
+    <div id="offline-banner" class="offline-banner">
+        ⚠️ You are currently offline. Backups, cloud sync, and file restores require an internet connection.
+    </div>
+
+    <!-- Header -->
+    <header>
+        <div class="logo-area">
+            <img src="/static/icons/icon.svg" alt="CloudVault" class="logo-icon-img">
+            <div class="logo-text">
+                <h1>CloudVault</h1>
+                <span>Cloud-Based Backup & Recovery</span>
+            </div>
+        </div>
+        <div class="header-status">
+            <button id="pwa-install-btn" class="btn btn-outline-accent btn-sm" style="display:none;" title="Install CloudVault as App">
+                📲 Install App
+            </button>
+            <span id="provider-badge" class="badge badge-mock">Local Mock Storage</span>
+            <span id="user-display" style="font-size:0.85rem;font-weight:600;">Student User</span>
+            <button id="logout-btn" class="btn btn-secondary btn-sm">Log Out</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Overview Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-title">Point-in-Time Snapshots</span>
+                <span id="stat-snapshots" class="stat-value">0</span>
+                <span class="stat-subtitle">Immutable recovery points</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">Files Protected</span>
+                <span id="stat-files" class="stat-value">0</span>
+                <span class="stat-subtitle">Across active folders</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">Storage Utilized</span>
+                <span id="stat-stored" class="stat-value">0 Bytes</span>
+                <span class="stat-subtitle">Physical stored bytes</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">Bandwidth & Space Saved</span>
+                <span id="stat-saved" class="stat-value">0 Bytes</span>
+                <span id="stat-savings-pct" class="stat-subtitle">(0% via deduplication)</span>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs (Desktop & Tablet) -->
+        <div class="tabs-nav" style="overflow-x:auto;white-space:nowrap;">
+            <button class="tab-btn active" data-tab="backup-tab">⚡ Backup & Protect</button>
+            <button class="tab-btn" data-tab="snapshots-tab">⏳ Snapshots</button>
+            <button class="tab-btn" data-tab="dr-tab">🚨 Disaster Recovery</button>
+            <button class="tab-btn" data-tab="security-tab">🛡️ Security & Ransomware</button>
+            <button class="tab-btn" data-tab="analytics-tab">📊 AI Analytics</button>
+            <button class="tab-btn" data-tab="timeline-tab">🕒 Version Timeline</button>
+            <button class="tab-btn" data-tab="trash-tab">♻ Trash</button>
+            <button class="tab-btn" data-tab="jobs-tab">📋 History</button>
+            <button class="tab-btn" data-tab="scheduler-tab">⚙️ Settings</button>
+        </div>
+
+        <!-- Tab 1: Backup & Protect -->
+        <div id="backup-tab" class="tab-content active">
+            <div class="grid-2col" style="margin-bottom:1.25rem;">
+                <!-- Manual Directory Backup Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Run Backup Job</h2>
+                    </div>
+                    <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                        Select an active backup plan to scan local folders, compute SHA-256 hashes, deduplicate files, and create a new snapshot.
+                    </p>
+                    <div class="form-group">
+                        <label for="active-plan-select">Select Active Backup Plan:</label>
+                        <select id="active-plan-select"></select>
+                    </div>
+                    <button id="trigger-backup-btn" class="btn btn-primary" style="width:100%;">
+                        ⚡ Execute Backup Now
+                    </button>
+                </div>
+
+                <!-- Direct File Upload with Deduplication Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Upload Single File (Deduplication Demo)</h2>
+                    </div>
+                    <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                        Upload a file directly to demonstrate instant SHA-256 deduplication. If the file content already exists in storage, upload is bypassed (0 bytes transferred).
+                    </p>
+                    <form id="file-upload-form">
+                        <div class="form-group">
+                            <label for="file-upload-input">Choose File:</label>
+                            <input type="file" id="file-upload-input" required>
+                        </div>
+                        <button type="submit" id="upload-file-btn" class="btn btn-success" style="width:100%;">
+                            Upload to CloudVault
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Create New Plan Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Create New Backup Plan</h2>
+                </div>
+                <form id="create-plan-form">
+                    <div class="grid-2col">
+                        <div class="form-group">
+                            <label for="plan-name-input">Plan Name:</label>
+                            <input type="text" id="plan-name-input" placeholder="e.g., University Project Work" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="plan-dir-input">Monitored Local Directory Path:</label>
+                            <input type="text" id="plan-dir-input" placeholder="e.g., C:\Users\saksh\Documents\Project" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="plan-schedule-type">Schedule Type:</label>
+                            <select id="plan-schedule-type">
+                                <option value="manual">Manual (On-Demand Only)</option>
+                                <option value="interval">Interval (Every N Seconds)</option>
+                                <option value="daily">Daily (Fixed Time)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="plan-schedule-expr">Schedule Value (Seconds or HH:MM):</label>
+                            <input type="text" id="plan-schedule-expr" value="3600">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-secondary">
+                        + Save Backup Plan
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Tab 2: Snapshot Time Machine -->
+        <div id="snapshots-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Point-in-Time Snapshots</h2>
+                    <div>
+                        <select id="snapshot-plan-select" style="min-height:38px;width:auto;display:inline-block;"></select>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Snapshot Name</th>
+                                <th>Timestamp</th>
+                                <th>Files</th>
+                                <th>Logical Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="snapshots-table-body">
+                            <tr><td colspan="6" style="text-align:center;">Loading snapshots...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 3: Deleted Files Recovery (Trash) -->
+        <div id="trash-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Deleted Files Recovery (Soft-Delete)</h2>
+                    <div>
+                        <select id="trash-plan-select" style="min-height:38px;width:auto;display:inline-block;"></select>
+                    </div>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                    These files were detected in past snapshots but are missing in your latest state. Click "Undelete" to restore them to your active folder.
+                </p>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>File Path</th>
+                                <th>Original Size</th>
+                                <th>Last Seen In</th>
+                                <th>Deletion Detected</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trash-table-body">
+                            <tr><td colspan="5" style="text-align:center;">Select a plan to view deleted files.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 4: Backup History & Jobs -->
+        <div id="jobs-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Backup Job Execution History</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Trigger</th>
+                                <th>Started At</th>
+                                <th>Files Breakdown</th>
+                                <th>Uploaded</th>
+                                <th>Deduplicated</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-table-body">
+                            <tr><td colspan="7" style="text-align:center;">Loading jobs...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 5: Settings & Scheduler -->
+        <div id="scheduler-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Automated Backup Scheduler Status</h2>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;">
+                    Status: <strong id="scheduler-status-text" style="color:var(--success);">ACTIVE</strong>
+                </p>
+                <button id="scheduler-toggle-btn" class="btn btn-danger">Stop Scheduler</button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Google Cloud Storage Integration Guide</h2>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;line-height:1.6;">
+                    CloudVault is currently running on <strong>Local Mock Cloud Storage</strong> (safe, offline, $0.00 cost).
+                    <br><br>
+                    To connect to a live Google Cloud Storage bucket when ready for your final university demonstration:
+                </p>
+                <pre>
+# Edit .env file in project root:
+STORAGE_PROVIDER=gcs
+GCS_BUCKET_NAME=your-bucket-name
+GCS_PROJECT_ID=your-gcp-project-id
+GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account-key.json
+GCS_REGION=us-central1
+                </pre>
+            </div>
+        </div>
+
+        <!-- Tab 6: Disaster Recovery Center -->
+        <div id="dr-tab" class="tab-content">
+            <div class="dr-metrics-grid">
+                <div class="dr-metric-card" id="dr-rpo-card">
+                    <span class="stat-title">Recovery Point Objective (RPO)</span>
+                    <span id="dr-rpo-value" class="dr-metric-value">-</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
+                        <span id="dr-rpo-badge" class="dr-metric-badge badge-optimal">OPTIMAL</span>
+                        <span style="font-size:0.75rem;color:var(--text-secondary);">Target: 24h</span>
+                    </div>
+                </div>
+                <div class="dr-metric-card" id="dr-rto-card">
+                    <span class="stat-title">Measured Recovery Time (RTO)</span>
+                    <span id="dr-rto-value" class="dr-metric-value">-</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
+                        <span id="dr-rto-speed" style="font-size:0.75rem;color:var(--text-secondary);">Speed: - MB/s</span>
+                        <span id="dr-rto-badge" class="dr-metric-badge badge-optimal">VERIFIED</span>
+                    </div>
+                </div>
+                <div class="dr-metric-card" id="dr-readiness-card">
+                    <span class="stat-title">Recovery Readiness Score</span>
+                    <span id="dr-readiness-value" class="dr-metric-value">- / 100</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
+                        <span id="dr-readiness-badge" class="dr-metric-badge badge-optimal">READY</span>
+                        <span id="dr-drills-count" style="font-size:0.75rem;color:var(--text-secondary);">0 Drills</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Drill Execution Panel -->
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">Simulate Sandboxed Disaster Recovery Drill</h2>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                    Non-destructive synthetic drill streams backup blocks from cloud storage into an isolated sandbox, verifies cryptographic SHA-256 integrity, calculates real restoration speed, and safely wipes the temporary sandbox without touching primary files.
+                </p>
+                <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;">
+                    <select id="dr-snapshot-select" style="min-width:240px;flex:1;"></select>
+                    <button id="trigger-dr-drill-btn" class="btn btn-primary">
+                        🚀 Run Synthetic Recovery Drill
+                    </button>
+                </div>
+                <div id="dr-drill-status" style="margin-top:1rem;display:none;padding:0.75rem;border-radius:8px;background:rgba(56,189,248,0.1);border:1px solid #38bdf8;font-size:0.85rem;"></div>
+            </div>
+
+            <!-- Historical Drills Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Recovery Drill Audit History</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Drill ID</th>
+                                <th>Status</th>
+                                <th>Files Verified</th>
+                                <th>Tested Bytes</th>
+                                <th>Restoration Speed</th>
+                                <th>RPO Age</th>
+                                <th>Estimated Full RTO</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dr-history-table-body">
+                            <tr><td colspan="8" style="text-align:center;">Loading drill history...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 7: Security & Ransomware Shield -->
+        <div id="security-tab" class="tab-content">
+            <div class="threat-banner" id="threat-banner">
+                <div style="display:flex;align-items:center;gap:0.75rem;">
+                    <span style="font-size:1.75rem;" id="threat-icon">🛡️</span>
+                    <div>
+                        <strong id="threat-status-title" style="font-size:1.05rem;color:#34d399;">RANSOMWARE SHIELD: ARMED & MONITORING</strong>
+                        <p style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.15rem;">
+                            Shannon entropy threshold: H &ge; 7.50 bits/byte | Known ransomware extension signatures active | WORM auto-lock enabled
+                        </p>
+                    </div>
+                </div>
+                <button id="run-entropy-scan-btn" class="btn btn-outline-accent btn-sm">Scan Active Folder</button>
+            </div>
+
+            <!-- Active Alerts Card -->
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">Anomalous Activity & Ransomware Alerts</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Risk Score</th>
+                                <th>Anomaly Details</th>
+                                <th>Detected At</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="security-alerts-table-body">
+                            <tr><td colspan="5" style="text-align:center;">No active ransomware or anomalous activity detected.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Cryptographic Audit Log Explorer -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Tamper-Evident SHA-256 Audit Log</h2>
+                    <span class="badge badge-passed" id="audit-chain-badge">⛓️ Hash Chain: Verified</span>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                    Every sensitive operation and AI action is permanently sealed in an immutable cryptographic hash chain where each entry includes the SHA-256 digest of the preceding record.
+                </p>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Event Type</th>
+                                <th>Action Details</th>
+                                <th>Severity</th>
+                                <th>Previous Hash</th>
+                                <th>Current SHA-256 Entry Hash</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-logs-table-body">
+                            <tr><td colspan="7" style="text-align:center;">Loading audit records...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 8: Predictive AI Analytics -->
+        <div id="analytics-tab" class="tab-content">
+            <div class="stats-grid" style="margin-bottom:1.5rem;">
+                <div class="stat-card">
+                    <span class="stat-title">Backup Health Score</span>
+                    <span id="ai-health-score" class="stat-value">-- / 100</span>
+                    <span id="ai-health-rating" class="stat-subtitle">Evaluating...</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-title">Deduplication Multiplier</span>
+                    <span id="ai-dedup-multiplier" class="stat-value">1.0x</span>
+                    <span id="ai-dedup-pct" class="stat-subtitle">0% space reduction</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-title">Estimated Cloud Cost</span>
+                    <span id="ai-cloud-cost" class="stat-value">$0.00 / mo</span>
+                    <span id="ai-cost-saved" class="stat-subtitle">Saved $0.00 / mo via deduplication</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-title">Daily Storage Velocity</span>
+                    <span id="ai-growth-rate" class="stat-value">+0 Bytes / day</span>
+                    <span id="ai-days-to-quota" class="stat-subtitle">Unlimited runway</span>
+                </div>
+            </div>
+
+            <div class="grid-2col" style="margin-bottom:1.5rem;">
+                <!-- Storage Growth Forecast -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">30-Day Storage Consumption Forecast</h2>
+                    </div>
+                    <div class="forecast-bars" id="forecast-bars-container">
+                        <div class="forecast-bar-item">
+                            <div class="forecast-bar" id="bar-day-0" style="height:20%;"></div>
+                            <span class="forecast-bar-label">Today</span>
+                        </div>
+                        <div class="forecast-bar-item">
+                            <div class="forecast-bar" id="bar-day-7" style="height:35%;"></div>
+                            <span class="forecast-bar-label">+7 Days</span>
+                        </div>
+                        <div class="forecast-bar-item">
+                            <div class="forecast-bar" id="bar-day-14" style="height:50%;"></div>
+                            <span class="forecast-bar-label">+14 Days</span>
+                        </div>
+                        <div class="forecast-bar-item">
+                            <div class="forecast-bar" id="bar-day-30" style="height:70%;"></div>
+                            <span class="forecast-bar-label">+30 Days</span>
+                        </div>
+                    </div>
+                    <p style="font-size:0.8rem;color:var(--text-secondary);" id="forecast-summary-text">
+                        Predictive linear regression model forecasting storage utilization across the next month.
+                    </p>
+                </div>
+
+                <!-- Storage By File Type -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Storage Breakdown by File Format</h2>
+                    </div>
+                    <div id="file-types-breakdown-container" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.5rem;">
+                        <span style="font-size:0.85rem;color:var(--text-secondary);">Analyzing protected file extensions...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Largest Files -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Top 10 Storage Heavyweights</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>File Name</th>
+                                <th>Format</th>
+                                <th>File Size</th>
+                                <th>Relative Path</th>
+                                <th>Latest Snapshot</th>
+                            </tr>
+                        </thead>
+                        <tbody id="large-files-table-body">
+                            <tr><td colspan="5" style="text-align:center;">Loading file rankings...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 9: Visual File Version Timeline -->
+        <div id="timeline-tab" class="tab-content">
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">Visual File Version Timeline Scrubber</h2>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                    Inspect the evolution of any file across all immutable snapshots. Select a past version to inspect its cryptographic SHA-256 fingerprint and restore it with 1-click.
+                </p>
+                <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;">
+                    <select id="timeline-file-select" style="min-width:280px;flex:1;">
+                        <option value="">Select a protected file...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="timeline-nodes-container" class="timeline-container">
+                <div class="timeline-line"></div>
+                <div id="timeline-empty-message" style="padding-left:3.5rem;color:var(--text-secondary);font-size:0.875rem;">
+                    Select a file above to view its historical version timeline.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Navigation Bar (Phone Screens) -->
+    <nav class="mobile-bottom-nav" style="overflow-x:auto;">
+        <button class="mobile-nav-item active" data-tab="backup-tab">
+            <span class="nav-icon">⚡</span>
+            <span>Backup</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="snapshots-tab">
+            <span class="nav-icon">⏳</span>
+            <span>Snapshots</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="dr-tab">
+            <span class="nav-icon">🚨</span>
+            <span>DR</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="security-tab">
+            <span class="nav-icon">🛡️</span>
+            <span>Security</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="analytics-tab">
+            <span class="nav-icon">📊</span>
+            <span>Analytics</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="timeline-tab">
+            <span class="nav-icon">🕒</span>
+            <span>Timeline</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="trash-tab">
+            <span class="nav-icon">♻</span>
+            <span>Trash</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="scheduler-tab">
+            <span class="nav-icon">⚙️</span>
+            <span>Settings</span>
+        </button>
+    </nav>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content">
+            <h2 id="auth-form-title" style="margin-bottom:1.25rem;">Log In to CloudVault</h2>
+            <form id="auth-form">
+                <div id="name-input-group" class="form-group" style="display:none;">
+                    <label for="auth-name">Full Name:</label>
+                    <input type="text" id="auth-name" placeholder="Student Name">
+                </div>
+                <div class="form-group">
+                    <label for="auth-email">Email Address:</label>
+                    <input type="email" id="auth-email" placeholder="student@university.edu" required>
+                </div>
+                <div class="form-group">
+                    <label for="auth-password">Password:</label>
+                    <input type="password" id="auth-password" placeholder="••••••••" required>
+                </div>
+                <button type="submit" id="auth-submit-btn" class="btn btn-primary" style="width:100%;margin-top:0.5rem;">
+                    Log In
+                </button>
+            </form>
+            <p style="text-align:center;margin-top:1rem;font-size:0.85rem;">
+                <a href="#" id="auth-toggle-link" style="color:var(--accent);text-decoration:none;">
+                    Need an account? Register
+                </a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Snapshot Files Modal -->
+    <div id="tree-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="max-width:800px;max-height:85vh;overflow-y:auto;">
+            <div class="card-header">
+                <h2 id="tree-modal-title" class="card-title">Snapshot Files</h2>
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('tree-modal').style.display='none'">✕ Close</button>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Size</th>
+                            <th>SHA-256</th>
+                            <th>Modified</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="snapshot-tree-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restore Destination Modal -->
+    <div id="restore-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content">
+            <div class="card-header">
+                <h2 id="restore-modal-title" class="card-title">Restore File / Snapshot</h2>
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('restore-modal').style.display='none'">✕</button>
+            </div>
+            <div class="form-group">
+                <label for="restore-dest-input">Restore Destination Directory:</label>
+                <input type="text" id="restore-dest-input" placeholder="e.g., C:\Users\saksh\Desktop\Restored_Files" required>
+            </div>
+            <div class="form-group">
+                <label for="restore-conflict-strategy">Conflict Resolution Strategy:</label>
+                <select id="restore-conflict-strategy">
+                    <option value="overwrite">Overwrite existing file</option>
+                    <option value="rename">Rename if file exists (keep both)</option>
+                    <option value="skip">Skip if file exists</option>
+                </select>
+            </div>
+            <button id="confirm-restore-btn" class="btn btn-success" style="width:100%;margin-top:0.5rem;">
+                Confirm Restore
+            </button>
+        </div>
+    </div>
+
+    <!-- Floating AI Assistant Button -->
+    <button id="ai-chat-toggle-btn" class="ai-fab" title="Open CloudVault AI Assistant">
+        <span style="font-size:1.25rem;">🤖</span>
+        <span>AI Copilot</span>
+    </button>
+
+    <!-- Expandable AI Assistant Drawer -->
+    <div id="ai-chat-drawer" class="ai-drawer" style="display:none;">
+        <div class="ai-drawer-header">
+            <div class="ai-drawer-title">
+                <span style="font-size:1.35rem;">🤖</span>
+                <div>
+                    <h3>CloudVault AI Copilot</h3>
+                    <span class="ai-badge-status">● Verified Assistant</span>
+                </div>
+            </div>
+            <button id="ai-drawer-close-btn" class="btn-icon" title="Close AI Assistant">✕</button>
+        </div>
+        
+        <div class="ai-suggestions-row">
+            <button class="ai-pill" data-prompt="How many files are currently protected?">🛡️ Protected files?</button>
+            <button class="ai-pill" data-prompt="Show my last five backups.">⏳ Recent backups</button>
+            <button class="ai-pill" data-prompt="How much storage have I saved?">💾 Storage saved?</button>
+            <button class="ai-pill" data-prompt="Is my backup system healthy?">🟢 System health?</button>
+            <button class="ai-pill" data-prompt="Which files have not been backed up recently?">🔍 Unprotected files?</button>
+            <button class="ai-pill" data-prompt="Explain my latest security alert.">🚨 Security alerts?</button>
+            <button class="ai-pill" data-prompt="Run an on-demand backup now.">⚡ Run backup</button>
+            <button class="ai-pill" data-prompt="Lock snapshot with WORM immutable retention.">🔒 Lock snapshot</button>
+        </div>
+
+        <div id="ai-messages-container" class="ai-messages-container">
+            <div class="ai-message assistant">
+                <div class="ai-msg-avatar">🤖</div>
+                <div class="ai-msg-bubble">
+                    <p>👋 Hello! I am your <strong>CloudVault AI Copilot</strong>.</p>
+                    <p style="margin-top:0.35rem;">I provide natural language insights into your backups, storage deduplication, and system health, with cryptographic human-in-the-loop authorization for sensitive actions. What would you like to know?</p>
+                </div>
+            </div>
+        </div>
+
+        <form id="ai-chat-form" class="ai-chat-input-bar">
+            <input type="text" id="ai-chat-input" placeholder="Ask about backups, health, storage savings..." autocomplete="off">
+            <button type="submit" id="ai-chat-send-btn" class="btn btn-primary btn-sm">Ask</button>
+        </form>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
