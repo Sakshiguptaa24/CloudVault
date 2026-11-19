@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from backend.app.models import Snapshot, SnapshotFile, StorageObject, BackupPlan
 from backend.app.storage.base import StorageProvider
 from backend.app.services.backup_service import decompress_payload, calculate_bytes_sha256
+from backend.app.services.crypto_service import (
+    envelope_decrypt_payload, decrypt_payload_aes_gcm, derive_user_kek, derive_object_dek
+)
 
 def resolve_conflict_path(dest_file: Path, strategy: str) -> Path:
     """Resolve file conflicts according to selected strategy."""
@@ -43,9 +46,46 @@ def restore_single_snapshot_file(
         raise ValueError(f"StorageObject missing for file: {snapshot_file.relative_path}")
 
     # 1. Download from storage provider
-    compressed_bytes = storage.download_bytes(storage_obj.storage_path)
+    downloaded_bytes = storage.download_bytes(storage_obj.storage_path)
 
-    # 2. Decompress
+    # 2. Authenticated AES-256-GCM Decryption if object is encrypted
+    if getattr(storage_obj, "is_encrypted", False):
+        user = storage_obj.user
+        if not user or not user.encryption_salt:
+            raise ValueError(f"Integrity check failed: cryptographic salt missing for user on object {storage_obj.id}")
+
+        try:
+            if storage_obj.encrypted_dek and storage_obj.dek_nonce and storage_obj.encryption_nonce:
+                encrypted_dek = bytes.fromhex(storage_obj.encrypted_dek)
+                payload_nonce = bytes.fromhex(storage_obj.encryption_nonce)
+                dek_nonce = bytes.fromhex(storage_obj.dek_nonce)
+                key_ver = storage_obj.key_version or 1
+                aad_ctx = storage_obj.aad_tag
+
+                compressed_bytes = envelope_decrypt_payload(
+                    ciphertext=downloaded_bytes,
+                    encrypted_dek=encrypted_dek,
+                    payload_nonce=payload_nonce,
+                    dek_nonce=dek_nonce,
+                    user_id=user.id,
+                    salt=user.encryption_salt,
+                    key_version=key_ver,
+                    aad_context=aad_ctx
+                )
+            elif storage_obj.encryption_nonce:
+                # Fallback legacy direct DEK decryption
+                kek = derive_user_kek(user.id, user.encryption_salt)
+                dek = derive_object_dek(kek, storage_obj.sha256_hash)
+                nonce = bytes.fromhex(storage_obj.encryption_nonce) if len(storage_obj.encryption_nonce) == 24 else storage_obj.encryption_nonce.encode()[:12]
+                compressed_bytes = decrypt_payload_aes_gcm(downloaded_bytes, dek, nonce)
+            else:
+                raise ValueError("Encrypted object is missing required encryption metadata")
+        except Exception as e:
+            raise ValueError(f"Integrity check failed: cryptographic verification failed ({e})")
+    else:
+        compressed_bytes = downloaded_bytes
+
+    # 3. Decompress
     try:
         restored_bytes = decompress_payload(compressed_bytes, storage_obj.compression_algo)
     except Exception as e:

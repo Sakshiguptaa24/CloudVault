@@ -131,6 +131,9 @@ def get_deleted_files(
 class LockSnapshotRequest(BaseModel):
     retention_days: int = 30
 
+class UpdateSnapshotRequest(BaseModel):
+    name: Optional[str] = None
+
 @router.post("/snapshots/{snapshot_id}/lock")
 def lock_snapshot_worm(
     snapshot_id: str,
@@ -147,29 +150,99 @@ def lock_snapshot_worm(
         raise HTTPException(status_code=404, detail="Snapshot not found")
 
     from datetime import datetime, timedelta
+    storage = get_storage_provider()
+    caps = storage.get_capabilities()
+    
+    # Determine actual provider-enforced lock vs application-level simulated lock
+    is_simulated = caps.get("simulated", True)
+    provider_name = caps.get("provider", "mock")
+    if is_simulated or provider_name == "mock":
+        retention_mode = "SIMULATED"
+        provider_lock_type = "MOCK_SIMULATED"
+    elif provider_name == "s3":
+        retention_mode = "PROVIDER_ENFORCED"
+        provider_lock_type = "S3_OBJECT_LOCK"
+    elif provider_name == "azure":
+        retention_mode = "PROVIDER_ENFORCED"
+        provider_lock_type = "AZURE_IMMUTABLE_BLOB"
+    elif provider_name == "gcs":
+        retention_mode = "PROVIDER_ENFORCED"
+        provider_lock_type = "GCS_BUCKET_LOCK"
+    else:
+        retention_mode = "SIMULATED"
+        provider_lock_type = "MOCK_SIMULATED"
+
     lock_until = datetime.utcnow() + timedelta(days=req.retention_days)
     snap.is_locked = True
     snap.is_immutable = True
     snap.lock_until = lock_until
+    snap.retention_mode = retention_mode
+    snap.provider_lock_type = provider_lock_type
+    snap.retention_period_days = req.retention_days
     db.commit()
 
     from backend.app.ai.security import record_audit_log
     record_audit_log(
         user_id=current_user.id,
         event_type="SNAPSHOT_WORM_LOCKED",
-        action=f"Snapshot #{snap.snapshot_number} locked for {req.retention_days} days",
-        details={"snapshot_id": snap.id, "lock_until": lock_until.isoformat()},
+        action=f"Snapshot #{snap.snapshot_number} locked with {retention_mode} WORM retention for {req.retention_days} days",
+        details={
+            "snapshot_id": snap.id,
+            "lock_until": lock_until.isoformat(),
+            "retention_mode": retention_mode,
+            "provider_lock_type": provider_lock_type,
+            "retention_days": req.retention_days
+        },
         db=db,
         severity="WARNING"
     )
 
     return {
         "status": "SUCCESS",
-        "message": f"WORM immutable retention locked on Snapshot #{snap.snapshot_number} until {lock_until.isoformat()}",
+        "message": f"WORM immutable retention locked on Snapshot #{snap.snapshot_number} until {lock_until.isoformat()} ({retention_mode})",
         "snapshot_id": snap.id,
         "is_immutable": True,
-        "lock_until": lock_until.isoformat()
+        "lock_until": lock_until.isoformat(),
+        "retention_mode": retention_mode,
+        "provider_lock_type": provider_lock_type,
+        "retention_period_days": req.retention_days
     }
+
+@router.patch("/snapshots/{snapshot_id}")
+def update_snapshot(
+    snapshot_id: str,
+    req: UpdateSnapshotRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update snapshot metadata. Fails with HTTP 403 if snapshot is protected by WORM retention."""
+    snap = db.query(Snapshot).filter(
+        Snapshot.id == snapshot_id,
+        Snapshot.user_id == current_user.id
+    ).first()
+    if not snap:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    from datetime import datetime
+    if snap.is_immutable and snap.lock_until and snap.lock_until > datetime.utcnow():
+        from backend.app.ai.security import record_audit_log
+        record_audit_log(
+            user_id=current_user.id,
+            event_type="SECURITY_DENIED",
+            action="Attempted modification of WORM protected snapshot",
+            details={"snapshot_id": snap.id, "lock_until": snap.lock_until.isoformat()},
+            db=db,
+            severity="CRITICAL"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"WORM Immutable Retention Violation: Snapshot is locked until {snap.lock_until.isoformat()} and cannot be modified."
+        )
+
+    if req.name:
+        snap.name = req.name.strip()
+        db.commit()
+    return {"status": "SUCCESS", "message": "Snapshot updated", "snapshot_id": snap.id, "name": snap.name}
 
 @router.delete("/snapshots/{snapshot_id}")
 def delete_snapshot(
@@ -187,6 +260,19 @@ def delete_snapshot(
 
     from datetime import datetime
     if snap.is_immutable and snap.lock_until and snap.lock_until > datetime.utcnow():
+        from backend.app.ai.security import record_audit_log
+        record_audit_log(
+            user_id=current_user.id,
+            event_type="SECURITY_DENIED",
+            action="Attempted deletion of WORM protected snapshot",
+            details={
+                "snapshot_id": snap.id,
+                "lock_until": snap.lock_until.isoformat(),
+                "retention_mode": getattr(snap, "retention_mode", "SIMULATED")
+            },
+            db=db,
+            severity="CRITICAL"
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"WORM Immutable Retention Violation: Snapshot is locked until {snap.lock_until.isoformat()} and cannot be deleted or modified."

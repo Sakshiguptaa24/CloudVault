@@ -2,6 +2,7 @@ import os
 import gzip
 import hashlib
 import fnmatch
+import secrets
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import settings
 from backend.app.models import User, BackupPlan, BackupJob, StorageObject, Snapshot, SnapshotFile
 from backend.app.storage.base import StorageProvider
+from backend.app.services.crypto_service import envelope_encrypt_payload
 
 def calculate_sha256(file_path: str) -> str:
     """Calculate SHA-256 checksum of a file streaming in 64 KB chunks."""
@@ -119,15 +121,53 @@ def backup_single_file(
     compressed_data = compress_payload(raw_data, plan.compression_algo)
     compressed_size = len(compressed_data)
 
+    # Envelope Encryption (Zero-Trust AES-256-GCM)
+    is_enc_enabled = getattr(plan, "encryption_enabled", True)
+    if is_enc_enabled:
+        if not user.encryption_salt:
+            user.encryption_salt = secrets.token_hex(16)
+            db.flush()
+        key_ver = getattr(user, "current_key_version", 1) or 1
+        aad_ctx = f"{user.id}:{sha256}:{key_ver}"
+        enc_res = envelope_encrypt_payload(
+            plaintext=compressed_data,
+            user_id=user.id,
+            salt=user.encryption_salt,
+            key_version=key_ver,
+            aad_context=aad_ctx
+        )
+        payload_to_upload = enc_res["ciphertext"]
+        is_encrypted = True
+        encryption_nonce = enc_res["payload_nonce"].hex()
+        encrypted_dek = enc_res["encrypted_dek"].hex()
+        dek_nonce = enc_res["dek_nonce"].hex()
+        stored_bytes_count = len(payload_to_upload)
+    else:
+        payload_to_upload = compressed_data
+        is_encrypted = False
+        encryption_nonce = None
+        encrypted_dek = None
+        dek_nonce = None
+        key_ver = 1
+        aad_ctx = None
+        stored_bytes_count = compressed_size
+
     storage_path = f"objects/{sha256}"
-    storage.upload_bytes(compressed_data, storage_path)
+    storage.upload_bytes(payload_to_upload, storage_path)
 
     new_obj = StorageObject(
         user_id=user.id,
         sha256_hash=sha256,
         original_size=original_size,
-        compressed_size=compressed_size,
+        compressed_size=stored_bytes_count,
         compression_algo=plan.compression_algo,
+        is_encrypted=is_encrypted,
+        encryption_algo="AES-256-GCM" if is_encrypted else "NONE",
+        encryption_nonce=encryption_nonce,
+        encrypted_dek=encrypted_dek,
+        dek_nonce=dek_nonce,
+        key_version=key_ver,
+        aad_tag=aad_ctx,
         storage_provider=settings.STORAGE_PROVIDER,
         storage_path=storage_path,
         storage_class="STANDARD",
@@ -136,7 +176,7 @@ def backup_single_file(
     db.add(new_obj)
     db.flush()
 
-    user.used_bytes += compressed_size
+    user.used_bytes += stored_bytes_count
     return new_obj, True
 
 def execute_backup_plan(

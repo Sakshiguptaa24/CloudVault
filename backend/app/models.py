@@ -23,6 +23,9 @@ class User(Base):
     mfa_secret = Column(String(64), nullable=True)
     mfa_enabled = Column(Boolean, default=False, nullable=False)
     encryption_salt = Column(String(64), nullable=True)
+    current_key_version = Column(Integer, default=1, nullable=False)
+    mfa_failed_attempts = Column(Integer, default=0, nullable=False)
+    mfa_locked_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -93,6 +96,10 @@ class StorageObject(Base):
     is_encrypted = Column(Boolean, default=False, nullable=False)
     encryption_algo = Column(String(30), default="AES-256-GCM", nullable=False)
     encryption_nonce = Column(String(64), nullable=True)
+    encrypted_dek = Column(Text, nullable=True)
+    dek_nonce = Column(String(64), nullable=True)
+    key_version = Column(Integer, default=1, nullable=False)
+    aad_tag = Column(String(255), nullable=True)
     storage_provider = Column(String(20), default="mock", nullable=False) # mock, gcs, s3, azure
     storage_path = Column(String(255), nullable=False)
     storage_class = Column(String(20), default="STANDARD", nullable=False)
@@ -118,6 +125,9 @@ class Snapshot(Base):
     is_locked = Column(Boolean, default=False, nullable=False)
     is_immutable = Column(Boolean, default=False, nullable=False)
     lock_until = Column(DateTime, nullable=True)
+    retention_mode = Column(String(30), default="SIMULATED", nullable=False) # SIMULATED, PROVIDER_ENFORCED
+    provider_lock_type = Column(String(50), default="MOCK_SIMULATED", nullable=False)
+    retention_period_days = Column(Integer, default=0, nullable=False)
     verification_status = Column(String(20), default="UNVERIFIED", nullable=False)
     verified_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

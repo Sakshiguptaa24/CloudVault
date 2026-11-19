@@ -9,7 +9,11 @@ from urllib.error import URLError, HTTPError
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
-from backend.app.models import Snapshot, BackupPlan, RansomwareAlert
+from backend.app.models import (
+    User, Snapshot, BackupPlan, RansomwareAlert, StorageObject,
+    MFARecoveryCode, DRDrill, AuditLog
+)
+from backend.app.ai.security import verify_audit_log_chain
 from backend.app.ai.tools import (
     tool_get_protected_files_summary,
     tool_get_recent_snapshots,
@@ -49,7 +53,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
         p = prompt.strip().lower()
 
         # 1. Protected Files Query
-        if any(w in p for w in ["protected", "how many file", "number of file", "total file"]):
+        if any(w in p for w in ["protected file", "files are currently protected", "files protected", "how many file", "how many files", "number of file", "total file", "total files"]):
             data = tool_get_protected_files_summary(user_id, db)
             count = data["protected_files_count"]
             plans = data["active_plans_count"]
@@ -68,7 +72,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
             }
 
         # 2. Recent Snapshots / Latest Five Backups Query
-        if any(w in p for w in ["last five", "recent backup", "recent snapshot", "show my backup", "list snapshot", "snapshots", "latest backup"]):
+        if any(w in p for w in ["last five", "recent backup", "recent snapshot", "recent snapshots", "show my backup", "list snapshot", "list snapshots", "latest backup", "latest snapshots", "show snapshots"]):
             data = tool_get_recent_snapshots(user_id, db, limit=5)
             snaps = data["snapshots"]
             if not snaps:
@@ -172,7 +176,7 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
 
         # 6. Security Alerts, Ransomware & Anomaly Queries
         if any(w in p for w in [
-            "security", "ransomware", "alert", "anomaly", "threat", "suspicious",
+            "security alert", "security alerts", "ransomware", "alert", "anomaly", "threat", "suspicious",
             "why was this backup flagged", "why was my backup flagged", "flagged",
             "which files are affected", "files affected", "risk level", "current risk",
             "which clean snapshot", "clean recovery", "clean snapshot", "what should i do next"
@@ -436,33 +440,219 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                 "action_card": None
             }
 
-        # 8F. Security Risks to Address ("What security risks should I address?")
-        if any(w in p for w in ["what security risks", "security risks should i address", "security risks", "vulnerabilities to address"]):
-            active_alerts = db.query(RansomwareAlert).filter(RansomwareAlert.user_id == user_id, RansomwareAlert.status == "ACTIVE").count()
-            unencrypted_plans = db.query(BackupPlan).filter(BackupPlan.user_id == user_id, BackupPlan.encryption_enabled == False).count()
-            unlocked_snaps = db.query(Snapshot).filter(Snapshot.user_id == user_id, Snapshot.is_locked == False).count()
+        # 8F1. Encryption Status Query ("Are my backups encrypted?")
+        if any(w in p for w in ["are my backups encrypted", "is encryption enabled", "are files encrypted", "backup encryption"]):
+            enc_objects = db.query(StorageObject).filter(StorageObject.user_id == user_id, StorageObject.is_encrypted == True).count()
+            unenc_objects = db.query(StorageObject).filter(StorageObject.user_id == user_id, StorageObject.is_encrypted == False).count()
+            plans = db.query(BackupPlan).filter(BackupPlan.user_id == user_id, BackupPlan.is_active == True).all()
+            all_enc = len(plans) > 0 and all(p.encryption_enabled for p in plans)
+            u = db.query(User).filter(User.id == user_id).first()
+            key_ver = getattr(u, "current_key_version", 1) or 1
 
-            lines = ["### 🛡️ Security Risk Assessment & Hardening\n"]
-            if active_alerts > 0:
-                lines.append(f"1. **🚨 Active Ransomware Alerts:** **{active_alerts} alert(s)** pending resolution in the Security Center.")
+            lines = ["### 🔐 Zero-Trust Encryption Status\n"]
+            if all_enc and unenc_objects == 0:
+                lines.append(f"✅ **All backups are encrypted with AES-256-GCM Envelope Encryption.**")
+            elif enc_objects > 0:
+                lines.append(f"ℹ️ **Partially Encrypted:** **{enc_objects:,} encrypted objects** and **{unenc_objects:,} unencrypted objects**.")
             else:
-                lines.append("1. **✅ Ransomware Shield:** 0 active threats detected. Real-time Shannon entropy filtering active.")
+                lines.append("⚠️ **No encrypted backup objects found.** Ensure 'Enable Encryption' is checked in your backup plans.")
 
-            if unencrypted_plans > 0:
-                lines.append(f"2. **⚠️ Plaintext Plans:** {unencrypted_plans} backup plan(s) have AES-256-GCM encryption disabled. Enable zero-trust encryption.")
-            else:
-                lines.append("2. **✅ Encryption:** All backup plans have AES-256-GCM envelope encryption enabled.")
-
-            if unlocked_snaps > 0:
-                lines.append(f"3. **ℹ️ Snapshot Immutability:** {unlocked_snaps} snapshot(s) lack WORM retention locks. Locking clean snapshots prevents ransomware deletion.")
-            else:
-                lines.append("3. **✅ Retention:** Key baseline snapshots are protected with WORM retention locks.")
-
-            lines.append("\n*Navigate to the **Security & Ransomware Shield** tab to manage active protections.*")
+            lines.append(f"- **Algorithm:** AES-256-GCM with hardware-accelerated authenticated tags (128-bit)")
+            lines.append(f"- **Key Architecture:** 2-tier Envelope Encryption (PBKDF2 KEK derivation + unique random 256-bit DEK per file)")
+            lines.append(f"- **Key Encryption Key Version:** `v{key_ver}` (Key rotation supported without losing older backups)")
+            lines.append(f"- **Nonce Safety:** 96-bit cryptographically secure random nonce generated per payload; nonces are never reused.")
             lines.append(self.FALLBACK_NOTICE)
             return {
                 "response": "\n".join(lines),
-                "data": {"active_alerts": active_alerts, "unencrypted_plans": unencrypted_plans, "unlocked_snapshots": unlocked_snaps},
+                "data": {"encrypted_objects": enc_objects, "unencrypted_objects": unenc_objects, "key_version": key_ver, "all_plans_encrypted": all_enc},
+                "action_card": None
+            }
+
+        # 8F2. MFA Status Query ("Is MFA enabled?")
+        if any(w in p for w in ["is mfa enabled", "is multi-factor enabled", "is 2fa enabled", "mfa status", "do i have mfa"]):
+            u = db.query(User).filter(User.id == user_id).first()
+            mfa_on = getattr(u, "mfa_enabled", False) if u else False
+            rec_codes_left = db.query(MFARecoveryCode).filter(MFARecoveryCode.user_id == user_id, MFARecoveryCode.is_used == False).count()
+
+            lines = ["### 📱 Multi-Factor Authentication (MFA) Status\n"]
+            if mfa_on:
+                lines.append("✅ **Multi-Factor Authentication is ACTIVE on your account.**")
+                lines.append(f"- **Protocol:** RFC 6238 Time-Based One-Time Password (TOTP, 30s window)")
+                lines.append(f"- **Authenticator Compatibility:** Google Authenticator, Microsoft Authenticator, Authy")
+                lines.append(f"- **One-Time Recovery Codes Remaining:** **{rec_codes_left} codes**")
+                lines.append("- **Brute-Force Shield:** Rate limiting active (temporary 15-minute account lockout after 5 consecutive failed attempts).")
+            else:
+                lines.append("⚠️ **MFA is currently DISABLED.** Your account relies solely on single-factor password authentication.")
+                lines.append("- To protect against credential theft, go to the **Security Center** and click **Set Up MFA** to pair your mobile authenticator app.")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"mfa_enabled": mfa_on, "recovery_codes_remaining": rec_codes_left},
+                "action_card": None
+            }
+
+        # 8F3. Protected Snapshots Query ("Which snapshots are protected?")
+        if any(w in p for w in ["which snapshots are protected", "protected snapshots", "which snapshots are locked", "locked snapshots"]):
+            locked_snaps = db.query(Snapshot).filter(Snapshot.user_id == user_id, Snapshot.is_locked == True).order_by(Snapshot.created_at.desc()).all()
+            lines = ["### 🔒 WORM Protected Snapshots\n"]
+            if not locked_snaps:
+                lines.append("ℹ️ **No snapshots are currently protected by WORM retention locks.**")
+                lines.append("Locking clean baseline snapshots ensures that ransomware or unauthorized deletion requests cannot modify or destroy your recovery points.")
+            else:
+                lines.append(f"CloudVault is currently protecting **{len(locked_snaps)} snapshot(s)** with immutable retention:\n")
+                for s in locked_snaps:
+                    dt = s.created_at.strftime("%Y-%m-%d %H:%M UTC") if s.created_at else "Unknown"
+                    expiry = s.lock_until.strftime("%Y-%m-%d %H:%M UTC") if s.lock_until else "Permanent"
+                    mode = getattr(s, "retention_mode", "SIMULATED")
+                    lock_type = getattr(s, "provider_lock_type", "MOCK_SIMULATED")
+                    badge = f"[{mode}: {lock_type}]"
+                    lines.append(f"- **Snapshot #{s.snapshot_number} ({s.name})**: Locked until `{expiry}` {badge}")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"protected_snapshots_count": len(locked_snaps)},
+                "action_card": None
+            }
+
+        # 8F4. Retention Expiry Query ("When does a retention lock expire?")
+        if any(w in p for w in ["when does a retention lock expire", "when does retention lock expire", "retention lock expire", "when does lock expire", "lock expire"]):
+            locked_snaps = db.query(Snapshot).filter(Snapshot.user_id == user_id, Snapshot.is_locked == True, Snapshot.lock_until != None).order_by(Snapshot.lock_until.asc()).all()
+            from datetime import datetime
+            now = datetime.utcnow()
+            lines = ["### ⏳ WORM Retention Expiry Schedule\n"]
+            if not locked_snaps:
+                lines.append("ℹ️ **There are no active retention lock expiries scheduled.** None of your snapshots currently carry a timed WORM retention policy.")
+            else:
+                lines.append("Upcoming retention lock expiries for protected snapshots:\n")
+                for s in locked_snaps:
+                    exp_dt = s.lock_until
+                    if exp_dt > now:
+                        remaining_days = (exp_dt - now).days
+                        remaining_hrs = int((exp_dt - now).total_seconds() // 3600)
+                        time_str = f"**{remaining_days} days** ({remaining_hrs} hours) remaining"
+                    else:
+                        time_str = "**Expired** (Ready for policy refresh or standard deletion)"
+                    mode = getattr(s, "retention_mode", "SIMULATED")
+                    lines.append(f"- **Snapshot #{s.snapshot_number} ({s.name})**: Expires on `{exp_dt.strftime('%Y-%m-%d %H:%M UTC')}` — {time_str} [{mode}]")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"locked_snapshots_count": len(locked_snaps)},
+                "action_card": None
+            }
+
+        # 8F5. Audit Trail Integrity Query ("Has my audit trail been tampered with?")
+        if any(w in p for w in ["has my audit trail been tampered with", "audit trail tampered", "has audit been tampered", "audit tampered", "verify audit trail", "audit log integrity"]):
+            audit_result = verify_audit_log_chain(user_id=user_id, db=db)
+            lines = ["### ⛓️ Audit Trail Tamper-Evidence Verification\n"]
+            if audit_result["is_valid"]:
+                lines.append(f"✅ **Audit Trail Integrity Verified: 100% Intact.**")
+                lines.append(f"- **Total Blocks Verified:** **{audit_result['total_entries']} entries**")
+                lines.append(f"- **Genesis Linkage:** Valid genesis block anchor")
+                lines.append(f"- **Hash Algorithm:** SHA-256 sequential block chain (`prev_hash` $\\parallel$ entry payload $\\rightarrow$ `current_hash`)")
+                lines.append(f"- **Tamper Detection Status:** **0 broken links**, 0 modified records detected.")
+                lines.append(f"\n*Note: Cryptographic hash chaining provides mathematically provable tamper-evidence within the database, proving historical ordering and exposing any modifications.*")
+            else:
+                lines.append(f"🚨 **WARNING: Audit Trail Discrepancy Detected!**")
+                lines.append(f"- **Error:** {audit_result.get('error_message')}")
+                lines.append(f"- **Broken Block ID:** `{audit_result.get('broken_entry_id')}`")
+                lines.append(f"- **Verified Blocks Prior to Break:** {audit_result['verified_entries']} of {audit_result['total_entries']}")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": audit_result,
+                "action_card": None
+            }
+
+        # 8F6. Restore Safety Query ("Are my files safe to restore?")
+        if any(w in p for w in ["are my files safe to restore", "safe to restore", "is it safe to restore", "restore safety"]):
+            active_alerts = db.query(RansomwareAlert).filter(RansomwareAlert.user_id == user_id, RansomwareAlert.status == "ACTIVE").all()
+            quarantined = [a for a in active_alerts if a.alert_level == "QUARANTINED"]
+            latest_snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
+            latest_drill = db.query(DRDrill).filter(DRDrill.user_id == user_id).order_by(DRDrill.created_at.desc()).first()
+
+            lines = ["### 🛡️ File Restoration Safety Assessment\n"]
+            if quarantined:
+                lines.append(f"🚨 **CAUTION: Active Ransomware Quarantine in Effect!**")
+                lines.append(f"There is an active quarantine alert on your account (Risk Score: {quarantined[0].risk_score}/100).")
+                lines.append(f"- **Do not restore recent unverified files to primary work folders.**")
+                lines.append(f"- Only restore from clean snapshots created **before** `{quarantined[0].created_at.strftime('%Y-%m-%d %H:%M UTC')}`.")
+            elif active_alerts:
+                lines.append(f"⚠️ **Warning:** A suspicious activity alert ({active_alerts[0].alert_level}) is active.")
+                lines.append("Verify file checksums in the Security Center before executing system-level restores.")
+            else:
+                lines.append("✅ **Files are verified safe to restore.**")
+                lines.append("- **Ransomware Threat Level:** 0 active threats detected.")
+                if latest_drill and latest_drill.status == "PASSED":
+                    lines.append(f"- **Synthetic DR Drill:** Latest drill **PASSED** ({latest_drill.files_tested} files, bit-for-bit SHA-256 match verified).")
+                if latest_snap:
+                    lines.append(f"- **Recommended Baseline Snapshot:** **#{latest_snap.snapshot_number} ({latest_snap.name})**.")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"active_alerts_count": len(active_alerts), "quarantined_count": len(quarantined)},
+                "action_card": None
+            }
+
+        # 8F7. Security Improvements Query ("What security improvements do I need?")
+        if any(w in p for w in ["what security improvements", "security improvements", "how to improve security", "security checklist", "what security risks", "security risks should i address", "security risks", "vulnerabilities to address"]):
+            u = db.query(User).filter(User.id == user_id).first()
+            mfa_on = getattr(u, "mfa_enabled", False) if u else False
+            active_alerts = db.query(RansomwareAlert).filter(RansomwareAlert.user_id == user_id, RansomwareAlert.status == "ACTIVE").count()
+            unenc_plans = db.query(BackupPlan).filter(BackupPlan.user_id == user_id, BackupPlan.encryption_enabled == False).count()
+            unlocked_snaps = db.query(Snapshot).filter(Snapshot.user_id == user_id, Snapshot.is_locked == False).count()
+            total_snaps = db.query(Snapshot).filter(Snapshot.user_id == user_id).count()
+            dr_passed = db.query(DRDrill).filter(DRDrill.user_id == user_id, DRDrill.status == "PASSED").count() > 0
+
+            lines = ["### 🛡️ Comprehensive Cyber Resilience Checklist\n"]
+            # 1. MFA
+            if not mfa_on:
+                lines.append("1. **⚠️ Enable Multi-Factor Authentication (High Priority):** Your account is currently single-factor. Enable TOTP MFA in the Security tab.")
+            else:
+                lines.append("1. **✅ Multi-Factor Authentication:** TOTP RFC 6238 active with brute-force rate limiting.")
+
+            # 2. Encryption
+            if unenc_plans > 0:
+                lines.append(f"2. **⚠️ Enable Zero-Trust Encryption:** {unenc_plans} backup plan(s) have AES-256-GCM encryption turned off.")
+            else:
+                lines.append("2. **✅ AES-256-GCM Envelope Encryption:** All active backup plans are configured with envelope encryption.")
+
+            # 3. WORM Immutability
+            if unlocked_snaps > 0 and total_snaps > 0:
+                lines.append(f"3. **ℹ️ Protect Clean Snapshots with WORM:** {unlocked_snaps} snapshot(s) lack immutable retention locks.")
+            elif total_snaps == 0:
+                lines.append("3. **ℹ️ Snapshot Retention:** Execute your first backup plan and lock the baseline snapshot.")
+            else:
+                lines.append("3. **✅ WORM Retention Locks:** Baseline snapshots are protected against ransomware tampering.")
+
+            # 4. DR Drill
+            if not dr_passed:
+                lines.append("4. **⚠️ Run Synthetic Recovery Drill:** No recent synthetic DR drill has been verified. Run a drill in the DR Center to prove bit-level recoverability.")
+            else:
+                lines.append("4. **✅ Recovery Verification:** Synthetic recovery drills have verified SHA-256 integrity.")
+
+            # 5. Ransomware Shield
+            if active_alerts > 0:
+                lines.append(f"5. **🚨 Resolve Security Alerts:** **{active_alerts} alert(s)** pending resolution in the Security Center.")
+            else:
+                lines.append("5. **✅ Ransomware Monitoring:** Real-time Shannon entropy and velocity defense is active.")
+
+            lines.append("\n*All improvements can be configured directly from the **Security & Ransomware Shield** and **Disaster Recovery** tabs.*")
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {
+                    "mfa_enabled": mfa_on,
+                    "active_alerts": active_alerts,
+                    "unencrypted_plans": unenc_plans,
+                    "unlocked_snapshots": unlocked_snaps,
+                    "dr_passed": dr_passed
+                },
                 "action_card": None
             }
 

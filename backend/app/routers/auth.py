@@ -85,6 +85,24 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
 
     # Multi-Factor Authentication Check
     if user.mfa_enabled:
+        from datetime import datetime, timedelta
+
+        # Check if account is temporarily locked due to failed MFA attempts
+        if getattr(user, "mfa_locked_until", None) and user.mfa_locked_until > datetime.utcnow():
+            remaining_mins = max(1, int((user.mfa_locked_until - datetime.utcnow()).total_seconds() / 60))
+            record_audit_log(
+                user_id=user.id,
+                event_type="AUTH_MFA_LOCKED",
+                action="Attempted login on locked account",
+                details={"email": user.email, "remaining_minutes": remaining_mins},
+                db=db,
+                severity="WARNING"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Too many failed MFA attempts. Account temporarily locked for {remaining_mins} more minutes."
+            )
+
         if not user_in.mfa_code:
             # Signal that MFA token is required
             return {
@@ -125,15 +143,41 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
                 )
 
         if not is_mfa_valid:
+            failed_count = (getattr(user, "mfa_failed_attempts", 0) or 0) + 1
+            user.mfa_failed_attempts = failed_count
+            if failed_count >= 5:
+                user.mfa_locked_until = datetime.utcnow() + timedelta(minutes=15)
+                db.commit()
+                record_audit_log(
+                    user_id=user.id,
+                    event_type="AUTH_MFA_LOCKOUT_TRIGGERED",
+                    action="MFA lockout activated (5 consecutive failures)",
+                    details={"email": user.email, "failed_attempts": failed_count},
+                    db=db,
+                    severity="CRITICAL"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many failed MFA attempts. Account temporarily locked for 15 minutes."
+                )
+            db.commit()
             record_audit_log(
                 user_id=user.id,
                 event_type="AUTH_MFA_FAILED",
-                action="Invalid TOTP or recovery code",
-                details={"email": user.email},
+                action=f"Invalid TOTP or recovery code (attempt {failed_count}/5)",
+                details={"email": user.email, "attempt": failed_count},
                 db=db,
                 severity="WARNING"
             )
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid MFA verification code.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid MFA verification code. ({5 - failed_count} attempts remaining before temporary lockout)"
+            )
+
+        # Reset failed attempts on success
+        user.mfa_failed_attempts = 0
+        user.mfa_locked_until = None
+        db.commit()
 
     record_audit_log(
         user_id=user.id,
@@ -252,3 +296,62 @@ def disable_mfa(
     )
 
     return {"status": "SUCCESS", "message": "Multi-Factor Authentication disabled."}
+
+@router.get("/mfa/status")
+def get_mfa_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve MFA enrollment status and remaining recovery codes count."""
+    unused_codes = db.query(MFARecoveryCode).filter(
+        MFARecoveryCode.user_id == current_user.id,
+        MFARecoveryCode.is_used == False
+    ).count()
+    return {
+        "mfa_enabled": current_user.mfa_enabled,
+        "recovery_codes_remaining": unused_codes,
+        "algorithm": "TOTP-SHA1-RFC6238",
+        "time_step_seconds": 30,
+        "digits": 6
+    }
+
+@router.post("/mfa/regenerate-recovery-codes")
+def regenerate_mfa_recovery_codes(
+    req: MFADisableRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Regenerate 8 fresh recovery codes. Requires current password and TOTP code."""
+    if not current_user.mfa_enabled or not current_user.mfa_secret:
+        raise HTTPException(status_code=400, detail="MFA is not enabled on this account.")
+    if not verify_password(req.password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password.")
+    if not verify_totp_code(current_user.mfa_secret, req.code):
+        raise HTTPException(status_code=400, detail="Invalid verification code.")
+
+    # Delete old codes
+    db.query(MFARecoveryCode).filter(MFARecoveryCode.user_id == current_user.id).delete()
+    # Generate 8 fresh codes
+    raw_codes = generate_recovery_codes(8)
+    for code in raw_codes:
+        rec_entry = MFARecoveryCode(
+            user_id=current_user.id,
+            code_hash=hash_recovery_code(code),
+            is_used=False
+        )
+        db.add(rec_entry)
+    db.commit()
+
+    record_audit_log(
+        user_id=current_user.id,
+        event_type="AUTH_MFA_RECOVERY_CODES_REGENERATED",
+        action="Regenerated 8 emergency MFA recovery codes",
+        details={"codes_count": 8},
+        db=db,
+        severity="WARNING"
+    )
+    return {
+        "status": "SUCCESS",
+        "recovery_codes": raw_codes,
+        "message": "Fresh recovery codes generated successfully."
+    }

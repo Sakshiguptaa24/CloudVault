@@ -467,13 +467,18 @@ def resolve_security_alert(
     unlocked_count = 0
 
     if unquarantine_snapshots and alert.plan_id:
-        # Unlock snapshots associated with this plan that were quarantined
+        # Unlock snapshots associated with this plan that were quarantined,
+        # BUT ensure active WORM retention locks are NOT silently removed.
+        from datetime import datetime
         snaps = db.query(Snapshot).filter(
             Snapshot.plan_id == alert.plan_id,
             Snapshot.user_id == user_id,
             Snapshot.is_locked == True
         ).all()
         for s in snaps:
+            # Active WORM retention lock must NEVER be cleared by alert resolution
+            if s.lock_until and s.lock_until > datetime.utcnow() and getattr(s, "retention_period_days", 0) > 0:
+                continue
             s.is_locked = False
             s.is_immutable = False
             s.lock_until = None

@@ -1090,15 +1090,316 @@ async function loadSecurityCenter() {
             };
         }
 
+        // =================================================================
+        // PHASE 4: ENCRYPTION, MFA & WORM SNAPSHOT RETENTION CONTROLLERS
+        // =================================================================
+
+        // 6. Load Zero-Trust Encryption Status
+        try {
+            const cryptoStatus = await api.getCryptoStatus();
+            const kekEl = document.getElementById("crypto-kek-version");
+            const encCountEl = document.getElementById("crypto-enc-count");
+            const badgeEl = document.getElementById("crypto-engine-badge");
+
+            if (kekEl) kekEl.textContent = `Version v${cryptoStatus.key_version || 1}`;
+            if (encCountEl) encCountEl.textContent = `${cryptoStatus.encrypted_objects_count} objects (${cryptoStatus.encryption_ratio_percent}%)`;
+            if (badgeEl) {
+                badgeEl.textContent = cryptoStatus.all_plans_encrypted ? "AES-256-GCM Active" : "Partial Encryption";
+                badgeEl.className = cryptoStatus.all_plans_encrypted ? "badge badge-passed" : "badge badge-warning";
+            }
+        } catch (e) {
+            console.warn("Could not load crypto status:", e);
+        }
+
+        // Bind Key Rotation Button
+        const rotateBtn = document.getElementById("btn-rotate-key");
+        if (rotateBtn && !rotateBtn.dataset.bound) {
+            rotateBtn.dataset.bound = "true";
+            rotateBtn.onclick = () => {
+                const modal = document.getElementById("key-rotation-modal");
+                if (modal) modal.style.display = "flex";
+            };
+        }
+
+        const confirmRotateBtn = document.getElementById("confirm-rotate-key-btn");
+        if (confirmRotateBtn && !confirmRotateBtn.dataset.bound) {
+            confirmRotateBtn.dataset.bound = "true";
+            confirmRotateBtn.onclick = async () => {
+                try {
+                    confirmRotateBtn.disabled = true;
+                    confirmRotateBtn.textContent = "Rotating...";
+                    const res = await api.rotateCryptoKey();
+                    showToast(`Key rotated successfully to version v${res.new_key_version}!`, "success");
+                    document.getElementById("key-rotation-modal").style.display = "none";
+                    loadSecurityCenter();
+                } catch (e) {
+                    showToast("Key rotation failed: " + e.message, "error");
+                } finally {
+                    confirmRotateBtn.disabled = false;
+                    confirmRotateBtn.textContent = "Confirm Key Rotation";
+                }
+            };
+        }
+
+        // 7. Load Multi-Factor Authentication Status
+        try {
+            const mfaStatus = await api.getMFAStatus();
+            const badgeEl = document.getElementById("mfa-status-badge");
+            const recCountEl = document.getElementById("mfa-recovery-count");
+            const protLevelEl = document.getElementById("mfa-protection-level");
+            const manageBtn = document.getElementById("btn-manage-mfa");
+
+            if (badgeEl) {
+                badgeEl.textContent = mfaStatus.mfa_enabled ? "TOTP ACTIVE" : "DISABLED";
+                badgeEl.className = mfaStatus.mfa_enabled ? "badge badge-passed" : "badge badge-warning";
+            }
+            if (recCountEl) {
+                recCountEl.textContent = mfaStatus.mfa_enabled ? `${mfaStatus.recovery_codes_remaining} remaining` : "None configured";
+            }
+            if (protLevelEl) {
+                protLevelEl.textContent = mfaStatus.mfa_enabled ? "2FA (Password + TOTP)" : "Password Only";
+                protLevelEl.style.color = mfaStatus.mfa_enabled ? "#10b981" : "#f59e0b";
+            }
+            if (manageBtn) {
+                manageBtn.textContent = mfaStatus.mfa_enabled ? "📱 Manage 2FA Settings" : "📱 Set Up MFA Now";
+                manageBtn.onclick = () => openMFAModal(mfaStatus);
+            }
+        } catch (e) {
+            console.warn("Could not load MFA status:", e);
+        }
+
+        // 8. Load WORM Snapshot Retention Table
+        try {
+            const snaps = await api.getSnapshots();
+            const wormTbody = document.getElementById("worm-snapshots-table-body");
+            if (wormTbody) {
+                wormTbody.innerHTML = "";
+                if (!snaps || snaps.length === 0) {
+                    wormTbody.innerHTML = "<tr><td colspan='7' style='text-align:center;'>No snapshots available yet.</td></tr>";
+                } else {
+                    snaps.forEach(s => {
+                        const tr = document.createElement("tr");
+                        const isLocked = s.is_locked || s.is_immutable;
+                        const retentionMode = s.retention_mode || (isLocked ? "SIMULATED" : "NONE");
+                        const lockType = s.provider_lock_type || (isLocked ? "MOCK_SIMULATED" : "UNLOCKED");
+                        const expiryText = isLocked && s.lock_until ? formatDate(s.lock_until) : "Not Locked";
+
+                        const modeBadge = isLocked ? (
+                            retentionMode === "PROVIDER_ENFORCED" ?
+                                `<span class="badge badge-passed">Provider-Enforced</span>` :
+                                `<span class="badge badge-mock">Simulated WORM</span>`
+                        ) : `<span class="badge badge-secondary">Unlocked</span>`;
+
+                        const actionBtn = isLocked ?
+                            `<span class="badge badge-passed" style="font-size:0.75rem;">🔒 Locked</span>` :
+                            `<button class="btn btn-outline-accent btn-sm lock-worm-btn" data-snap-id="${s.id}">🔒 Lock WORM</button>`;
+
+                        tr.innerHTML = `
+                            <td><strong>#${s.snapshot_number}</strong></td>
+                            <td>${escapeHTML(s.name)}</td>
+                            <td style="font-size:0.8rem;">${formatDate(s.created_at)}</td>
+                            <td>${modeBadge}</td>
+                            <td><code>${escapeHTML(lockType)}</code></td>
+                            <td style="font-size:0.8rem;${isLocked ? 'color:#34d399;' : ''}">${expiryText}</td>
+                            <td>${actionBtn}</td>
+                        `;
+                        wormTbody.appendChild(tr);
+                    });
+
+                    // Bind lock WORM buttons
+                    wormTbody.querySelectorAll(".lock-worm-btn").forEach(btn => {
+                        btn.onclick = async () => {
+                            const snapId = btn.dataset.snapId;
+                            const daysStr = prompt("Enter WORM retention period in days (e.g., 30):", "30");
+                            if (!daysStr) return;
+                            const days = parseInt(daysStr, 10);
+                            if (isNaN(days) || days <= 0) {
+                                showToast("Please enter a valid positive number of days.", "error");
+                                return;
+                            }
+                            try {
+                                btn.disabled = true;
+                                btn.textContent = "Locking...";
+                                const res = await api.lockSnapshotWORM(snapId, days);
+                                showToast(res.message || "Snapshot locked with immutable retention policy!", "success");
+                                loadSecurityCenter();
+                            } catch (err) {
+                                showToast("Failed to lock snapshot: " + err.message, "error");
+                                btn.disabled = false;
+                                btn.textContent = "🔒 Lock WORM";
+                            }
+                        };
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn("Could not load WORM snapshots:", e);
+        }
+
+        // 9. Bind Audit Chain Verification Button
+        const verifyAuditBtn = document.getElementById("verify-audit-chain-btn");
+        if (verifyAuditBtn && !verifyAuditBtn.dataset.bound) {
+            verifyAuditBtn.dataset.bound = "true";
+            verifyAuditBtn.onclick = async () => {
+                const badge = document.getElementById("audit-chain-badge");
+                verifyAuditBtn.disabled = true;
+                verifyAuditBtn.textContent = "Verifying...";
+                try {
+                    const res = await api.verifyAuditTrail();
+                    if (res.is_valid) {
+                        badge.className = "badge badge-passed";
+                        badge.textContent = `⛓️ Hash Chain: Verified (${res.verified_entries} Blocks Intact)`;
+                        showToast(`Audit hash chain 100% verified! ${res.verified_entries} sequential blocks intact.`, "success");
+                    } else {
+                        badge.className = "badge badge-quarantined";
+                        badge.textContent = "🚨 Hash Chain: TAMPERED";
+                        showToast(`Audit discrepancy detected at block ${res.broken_entry_id}: ${res.error_message}`, "error");
+                    }
+                } catch (e) {
+                    showToast("Could not verify audit chain: " + e.message, "error");
+                } finally {
+                    verifyAuditBtn.disabled = false;
+                    verifyAuditBtn.textContent = "Verify Hash Chain";
+                }
+            };
+        }
+
     } catch (err) {
         console.error("Security Center load error:", err);
         showToast("Could not load security center: " + err.message, "error");
     }
 }
 
-    } catch (err) {
-        console.error("Security Center load error:", err);
-        showToast("Could not load security center: " + err.message, "error");
+// MFA Setup & Management Modal View Controller
+async function openMFAModal(mfaStatus) {
+    const modal = document.getElementById("mfa-modal");
+    const body = document.getElementById("mfa-modal-body");
+    const title = document.getElementById("mfa-modal-title");
+    if (!modal || !body) return;
+
+    modal.style.display = "flex";
+
+    if (!mfaStatus.mfa_enabled) {
+        // ENROLLMENT FLOW
+        title.textContent = "📱 Set Up Two-Factor Authentication";
+        body.innerHTML = `
+            <div style="text-align:center;padding:1rem;">
+                <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">
+                    Loading authenticator key...
+                </p>
+            </div>
+        `;
+
+        try {
+            const setupData = await api.setupMFA();
+            body.innerHTML = `
+                <div style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">
+                    <p>1. Open your authenticator app (<strong>Google Authenticator</strong>, <strong>Microsoft Authenticator</strong>, or <strong>Authy</strong>).</p>
+                    <p style="margin-top:0.5rem;">2. Add an account and enter this secret key manually:</p>
+                </div>
+                <div style="background:rgba(0,0,0,0.3);padding:0.75rem 1rem;border-radius:6px;font-family:monospace;font-size:1.1rem;text-align:center;letter-spacing:2px;color:#38bdf8;border:1px solid var(--border-color);margin-bottom:1rem;user-select:all;">
+                    ${setupData.secret}
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1.25rem;">
+                    <p>3. Enter the 6-digit confirmation code generated by your authenticator app:</p>
+                </div>
+                <form id="mfa-enable-form" style="display:flex;flex-direction:column;gap:0.75rem;">
+                    <input type="text" id="mfa-enroll-code" maxlength="6" placeholder="000000" style="text-align:center;font-size:1.5rem;letter-spacing:4px;padding:0.5rem;font-family:monospace;" required autocomplete="off">
+                    <button type="submit" class="btn btn-primary" style="width:100%;">Verify & Enable 2FA</button>
+                </form>
+            `;
+
+            document.getElementById("mfa-enable-form").onsubmit = async (e) => {
+                e.preventDefault();
+                const code = document.getElementById("mfa-enroll-code").value.trim();
+                try {
+                    const enableRes = await api.enableMFA(setupData.secret, code);
+                    const recoveryCodes = enableRes.recovery_codes || [];
+                    title.textContent = "🎉 MFA Enabled Successfully!";
+                    body.innerHTML = `
+                        <div style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">
+                            <p style="color:#10b981;font-weight:600;">Two-Factor Authentication is now active on your CloudVault account.</p>
+                            <p style="margin-top:0.5rem;color:#f59e0b;"><strong>⚠️ Save Your Emergency Recovery Codes:</strong></p>
+                            <p>Each code can be used once to access your account if you lose access to your authenticator device. These will not be displayed again.</p>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;background:rgba(0,0,0,0.3);padding:1rem;border-radius:6px;font-family:monospace;font-size:0.9rem;border:1px solid var(--border-color);margin-bottom:1rem;">
+                            ${recoveryCodes.map(c => `<div style="color:#38bdf8;padding:0.25rem;">• ${c}</div>`).join("")}
+                        </div>
+                        <div style="display:flex;gap:0.75rem;">
+                            <button id="copy-rec-codes-btn" class="btn btn-secondary btn-sm" style="flex:1;">📋 Copy Codes</button>
+                            <button class="btn btn-primary btn-sm" style="flex:1;" onclick="document.getElementById('mfa-modal').style.display='none';loadSecurityCenter();">Done</button>
+                        </div>
+                    `;
+
+                    document.getElementById("copy-rec-codes-btn").onclick = () => {
+                        navigator.clipboard.writeText(recoveryCodes.join("\n"));
+                        showToast("Recovery codes copied to clipboard!", "success");
+                    };
+                    showToast("MFA successfully activated!", "success");
+                } catch (err) {
+                    showToast("Failed to enable MFA: " + err.message, "error");
+                }
+            };
+        } catch (err) {
+            body.innerHTML = `<div style="color:#ef4444;padding:1rem;">Could not initialize MFA setup: ${err.message}</div>`;
+        }
+    } else {
+        // MANAGEMENT / DISABLE FLOW
+        title.textContent = "📱 Manage Two-Factor Authentication";
+        body.innerHTML = `
+            <div style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1.25rem;">
+                <p>MFA is currently <strong style="color:#10b981;">Active</strong>. You have <strong>${mfaStatus.recovery_codes_remaining}</strong> unused emergency recovery codes.</p>
+            </div>
+            
+            <div style="border-top:1px solid var(--border-color);padding-top:1rem;margin-bottom:1rem;">
+                <h4 style="margin:0 0 0.5rem 0;font-size:0.95rem;">Regenerate Emergency Recovery Codes</h4>
+                <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;">Requires your current password and a valid 6-digit TOTP code.</p>
+                <form id="mfa-regen-form" style="display:flex;flex-direction:column;gap:0.5rem;">
+                    <input type="password" id="mfa-regen-pw" placeholder="Current Account Password" required style="padding:0.4rem;">
+                    <input type="text" id="mfa-regen-code" maxlength="6" placeholder="Current 6-Digit TOTP Code" required style="padding:0.4rem;font-family:monospace;">
+                    <button type="submit" class="btn btn-secondary btn-sm">Regenerate 8 New Codes</button>
+                </form>
+            </div>
+
+            <div style="border-top:1px solid var(--border-color);padding-top:1rem;">
+                <h4 style="margin:0 0 0.5rem 0;font-size:0.95rem;color:#ef4444;">Disable Two-Factor Authentication</h4>
+                <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;">Disabling MFA reduces account security. Requires password and TOTP verification.</p>
+                <form id="mfa-disable-form" style="display:flex;flex-direction:column;gap:0.5rem;">
+                    <input type="password" id="mfa-disable-pw" placeholder="Current Account Password" required style="padding:0.4rem;">
+                    <input type="text" id="mfa-disable-code" maxlength="6" placeholder="Current 6-Digit TOTP Code" required style="padding:0.4rem;font-family:monospace;">
+                    <button type="submit" class="btn btn-warning btn-sm">Confirm & Disable MFA</button>
+                </form>
+            </div>
+        `;
+
+        document.getElementById("mfa-regen-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const pw = document.getElementById("mfa-regen-pw").value;
+            const code = document.getElementById("mfa-regen-code").value.trim();
+            try {
+                const res = await api.regenerateRecoveryCodes(pw, code);
+                const codes = res.recovery_codes || [];
+                alert("New Recovery Codes Generated:\n\n" + codes.join("\n") + "\n\nSave these codes securely!");
+                showToast("8 fresh recovery codes generated!", "success");
+                loadSecurityCenter();
+            } catch (err) {
+                showToast("Regeneration failed: " + err.message, "error");
+            }
+        };
+
+        document.getElementById("mfa-disable-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const pw = document.getElementById("mfa-disable-pw").value;
+            const code = document.getElementById("mfa-disable-code").value.trim();
+            try {
+                await api.disableMFA(pw, code);
+                showToast("Multi-Factor Authentication disabled.", "info");
+                document.getElementById("mfa-modal").style.display = "none";
+                loadSecurityCenter();
+            } catch (err) {
+                showToast("Failed to disable MFA: " + err.message, "error");
+            }
+        };
     }
 }
 

@@ -22,6 +22,7 @@ class UserResponse(BaseModel):
     used_bytes: int
     is_active: bool
     mfa_enabled: bool = False
+    current_key_version: Optional[int] = 1
     created_at: datetime
 
     class Config:
@@ -111,6 +112,13 @@ class SnapshotResponse(BaseModel):
     total_files: int
     total_uncompressed_bytes: int
     total_stored_bytes: int
+    is_locked: Optional[bool] = False
+    is_immutable: Optional[bool] = False
+    lock_until: Optional[datetime] = None
+    retention_mode: Optional[str] = "SIMULATED"
+    provider_lock_type: Optional[str] = "MOCK_SIMULATED"
+    retention_period_days: Optional[int] = 0
+    verification_status: Optional[str] = "UNVERIFIED"
     created_at: datetime
 
     class Config:

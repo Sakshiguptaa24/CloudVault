@@ -1,8 +1,8 @@
 # CloudVault 2.0: Quality Assurance & Testing Strategy
 **Project:** CloudVault 2.0 – Intelligent Cloud Backup, Security & Disaster Recovery Platform  
-**Total Automated Tests:** 60 Tests Across 15 Test Suites  
+**Total Automated Tests:** 70 Tests Across 15 Test Suites  
 **Verification Result:** 100% Passed (0 Failures, 0 Regressions)  
-**Execution Runtime:** ~9.8 seconds  
+**Execution Runtime:** ~19.2 seconds  
 **Test Harness:** Pytest 9.2, FastAPI TestClient, AnyIO, In-Memory / Isolated SQLite  
 
 ---
@@ -20,7 +20,7 @@ CloudVault 2.0 enforces a multi-tiered testing strategy designed to validate cor
                    │ (Anti-replay nonces, cross-user lock)│
                    ├──────────────────────────────────────┴──────┐
                    │          Security & Crypto Core             │
-                   │ (AES-256-GCM, RFC 6238 TOTP, Entropy Math)  │
+                   │ (AES-256-GCM, RFC 6238 TOTP, WORM & Audit) │
                    ├─────────────────────────────────────────────┴──────┐
                    │            Multi-Cloud Integration Suites          │
                    │     (GCS, AWS S3, Azure Blob, Air-Gapped Mock)     │
@@ -32,7 +32,7 @@ CloudVault 2.0 enforces a multi-tiered testing strategy designed to validate cor
 
 ---
 
-## 2. Complete Test Suite Inventory (51 Tests)
+## 2. Complete Test Suite Inventory (70 Tests)
 
 ### 1. AI Copilot & Safety Protocol (`test_ai_assistant.py`) — 8 Tests
 - `test_ai_capabilities`: Validates schema and whitelist of read-only queries vs controlled actions.
@@ -61,17 +61,27 @@ CloudVault 2.0 enforces a multi-tiered testing strategy designed to validate cor
 - `test_authorization_of_sensitive_recovery_actions_under_alert`: Verifies cryptographic token authorization for sensitive remediation actions.
 
 ### 3. Disaster Recovery Center (`test_disaster_recovery.py`) — 4 Tests
-- `test_shannon_entropy_calculation`: Validates mathematical accuracy of the Shannon entropy engine ($H \in [0.0, 8.0]$).
-- `test_high_entropy_alone_does_not_trigger_quarantine`: Confirms that naturally high-entropy compressed files (`.zip`, `.jpg`) never trigger false-positive quarantine.
-- `test_simulated_ransomware_detection_and_quarantine`: Simulates multi-signal ransomware attack; confirms risk score $\ge 70$, quarantine alert, and automated WORM snapshot shielding.
-- `test_security_router_apis`: Tests alert dismissal, health endpoints, and directory analysis routes.
+- `test_dr_metrics_calculation`: Validates RPO telemetry calculation and RTO throughput measurements.
+- `test_synthetic_recovery_drill_success`: Tests sandboxed synthetic recovery drill with bit-level SHA-256 integrity match.
+- `test_synthetic_recovery_drill_corruption_detection`: Verifies immediate drill failure reporting when simulated cloud block corruption occurs.
+- `test_dr_history_endpoint`: Tests `/api/v1/recovery/dr-history` audit listing and attestation.
 
-### 4. Advanced Security Core (`test_security_core.py`)
-- `test_aes_gcm_envelope_encryption_roundtrip`: Verifies PBKDF2 KEK derivation, HMAC-SHA256 DEK derivation, and AES-256-GCM encryption/decryption roundtrip.
-- `test_aes_gcm_corrupted_ciphertext_fails_auth`: Injects a single corrupted byte; confirms cryptographic verification failure via GCM auth tag.
+### 4. Advanced Security Core (`test_security_core.py`) — 15 Tests
+- `test_aes_gcm_envelope_encryption_roundtrip`: Verifies PBKDF2 KEK derivation, DEK generation, and AES-256-GCM encryption/decryption roundtrip.
+- `test_aes_gcm_corrupted_ciphertext_fails_auth`: Injects a single corrupted byte; confirms cryptographic verification failure via GCM 128-bit auth tag.
 - `test_totp_rfc6238_generation_and_verification`: Verifies RFC 6238 TOTP engine, secret generation, constant-time verification window, and drift tolerance.
 - `test_mfa_enable_and_recovery_codes_flow`: Tests full MFA enrollment, 8 hashed one-time backup codes, and emergency recovery authentication.
 - `test_worm_immutable_snapshot_deletion_prevention`: Verifies WORM snapshot immutability; confirms deletion attempts return HTTP 403 Forbidden.
+- `test_envelope_encryption_random_dek_and_aad`: Verifies unique random 256-bit DEK generation, 96-bit random nonces with zero reuse, and AAD context binding.
+- `test_crypto_key_rotation_preserves_older_backups`: Tests KEK rotation from v1 to v2 while preserving decryptability of older backup versions.
+- `test_end_to_end_encrypted_backup_and_restore_pipeline`: End-to-end pipeline test verifying encryption on backup, bit-for-bit SHA-256 match on restore, and intra-user CAS deduplication preservation.
+- `test_backward_compatibility_unencrypted_restore`: Ensures legacy/unencrypted objects restore transparently without errors.
+- `test_mfa_brute_force_rate_limiting`: Verifies 5 failed attempts trigger a 15-minute HTTP 429 lockout.
+- `test_mfa_disable_requires_password_and_totp`: Confirms disabling MFA requires valid password and valid TOTP code.
+- `test_worm_modification_prevention_and_provider_labeling`: Verifies PATCH modification of locked snapshots is blocked (HTTP 403) and checks `SIMULATED` vs `PROVIDER_ENFORCED` labels.
+- `test_alert_resolution_does_not_remove_active_worm_lock`: Confirms active WORM retention locks are never prematurely cleared during security alert resolution.
+- `test_audit_hash_chain_verification_and_tampering_detection`: Validates sequential SHA-256 audit log blockchain verification and broken-link tampering detection.
+- `test_ai_assistant_phase4_security_queries`: Verifies all 7 Phase 4 AI security queries (encryption, MFA, protected snapshots, retention expiry, audit integrity, restore safety, and improvements).
 
 ### 5. Multi-Cloud Storage Adapters (`test_cloud_storage_adapters.py`)
 - `test_mock_storage_provider_lifecycle`: Tests capabilities, health probes, streaming bytes, and metadata on local air-gapped storage.

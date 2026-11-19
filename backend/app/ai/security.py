@@ -137,12 +137,17 @@ def record_audit_log(
     details: Dict[str, Any],
     db: Session,
     severity: str = "INFO",
-    ip_address: str = "127.0.0.1"
+    ip_address: str = "127.0.0.1",
+    user_agent: str = "",
+    status: str = "SUCCESS"
 ) -> AuditLog:
     """
-    Record an immutable, hash-chained audit log entry.
+    Record a tamper-evident, hash-chained audit log entry.
+    Note: A hash chain stored inside the same writable database is tamper-evident
+    (it mathematically proves historical ordering and flags modifications),
+    not independently immutable against an administrator with raw DB write access.
     """
-    last_log = db.query(AuditLog).order_by(AuditLog.created_at.desc()).first()
+    last_log = db.query(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).first()
     prev_hash = last_log.current_hash if (last_log and last_log.current_hash) else "GENESIS_BLOCK_00000000000000000000000000000000"
 
     now = datetime.utcnow()
@@ -154,9 +159,10 @@ def record_audit_log(
         user_id=user_id,
         event_type=event_type,
         action=action,
-        status="SUCCESS",
+        status=status,
         severity=severity,
         ip_address=ip_address,
+        user_agent=user_agent,
         details=details_str,
         prev_hash=prev_hash,
         current_hash=current_hash,
@@ -166,4 +172,94 @@ def record_audit_log(
     db.commit()
     db.refresh(log_entry)
     return log_entry
+
+def verify_audit_log_chain(
+    user_id: Optional[str] = None,
+    db: Session = None
+) -> Dict[str, Any]:
+    """
+    Verify the cryptographic integrity of the audit log hash chain.
+    Iterates sequentially through all audit log entries, re-computing:
+    expected_hash = sha256(prev_hash:user_id:event_type:action:details:created_at_iso)
+    Verifies that:
+      1. Every entry's current_hash matches the recalculated sha256.
+      2. Every entry's prev_hash matches the preceding entry's current_hash (or GENESIS).
+    Detects any modification, insertion, deletion, or tampering with historical logs.
+    """
+    logs = db.query(AuditLog).order_by(AuditLog.created_at.asc(), AuditLog.id.asc()).all()
+    if not logs:
+        return {
+            "is_valid": True,
+            "total_entries": 0,
+            "verified_entries": 0,
+            "broken_entry_id": None,
+            "error_message": None,
+            "tamper_evident_status": "INTACT",
+            "tamper_evidence_disclaimer": "Cryptographic SHA-256 hash chaining provides tamper-evidence within the database. It proves historical sequencing and flags any modified or deleted record."
+        }
+
+    expected_prev = "GENESIS_BLOCK_00000000000000000000000000000000"
+    verified_count = 0
+
+    for idx, entry in enumerate(logs):
+        # 1. Verify prev_hash linkage
+        if idx == 0:
+            if entry.prev_hash != expected_prev:
+                return {
+                    "is_valid": False,
+                    "total_entries": len(logs),
+                    "verified_entries": verified_count,
+                    "broken_entry_id": entry.id,
+                    "error_message": f"Genesis linkage broken: expected {expected_prev}, got {entry.prev_hash}",
+                    "tamper_evident_status": "TAMPERED",
+                    "tamper_evidence_disclaimer": "Cryptographic SHA-256 hash chaining detected modified or deleted historical records."
+                }
+        else:
+            if entry.prev_hash != expected_prev:
+                return {
+                    "is_valid": False,
+                    "total_entries": len(logs),
+                    "verified_entries": verified_count,
+                    "broken_entry_id": entry.id,
+                    "error_message": f"Chain linkage broken at entry #{idx+1} ({entry.id}): prev_hash does not match previous block current_hash",
+                    "tamper_evident_status": "TAMPERED",
+                    "tamper_evidence_disclaimer": "Cryptographic SHA-256 hash chaining detected modified or deleted historical records."
+                }
+
+        # 2. Recalculate and verify current_hash
+        details_str = entry.details or "{}"
+        try:
+            parsed = json.loads(details_str)
+            normalized_details = json.dumps(parsed, sort_keys=True)
+        except Exception:
+            normalized_details = details_str
+
+        hash_payload = f"{entry.prev_hash}:{entry.user_id}:{entry.event_type}:{entry.action}:{normalized_details}:{entry.created_at.isoformat()}"
+        computed_hash = hashlib.sha256(hash_payload.encode("utf-8")).hexdigest()
+
+        if computed_hash != entry.current_hash:
+            alt_payload = f"{entry.prev_hash}:{entry.user_id}:{entry.event_type}:{entry.action}:{details_str}:{entry.created_at.isoformat()}"
+            if hashlib.sha256(alt_payload.encode("utf-8")).hexdigest() != entry.current_hash:
+                return {
+                    "is_valid": False,
+                    "total_entries": len(logs),
+                    "verified_entries": verified_count,
+                    "broken_entry_id": entry.id,
+                    "error_message": f"Block content tampered at entry #{idx+1} ({entry.id}): hash mismatch",
+                    "tamper_evident_status": "TAMPERED",
+                    "tamper_evidence_disclaimer": "Cryptographic SHA-256 hash chaining detected modified block content."
+                }
+
+        verified_count += 1
+        expected_prev = entry.current_hash
+
+    return {
+        "is_valid": True,
+        "total_entries": len(logs),
+        "verified_entries": verified_count,
+        "broken_entry_id": None,
+        "error_message": None,
+        "tamper_evident_status": "INTACT",
+        "tamper_evidence_disclaimer": "Tamper-evident verification confirmed: all hash chain blocks are cryptographically valid and unbroken."
+    }
 

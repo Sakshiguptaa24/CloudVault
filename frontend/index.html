@@ -388,6 +388,106 @@ GCS_REGION=us-central1
                 </div>
             </div>
 
+            <!-- Phase 4 Advanced Security Core: Zero-Trust Encryption & TOTP MFA -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:1.5rem;margin-bottom:1.5rem;">
+                <!-- Card 1: Zero-Trust Encryption & Key Management -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">🔐 Zero-Trust Envelope Encryption</h2>
+                        <span class="badge badge-passed" id="crypto-engine-badge">AES-256-GCM Active</span>
+                    </div>
+                    <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                        Multi-tier envelope encryption separates data keys from key-encryption keys. Every object receives a cryptographically secure random 256-bit DEK and unique 96-bit nonce.
+                    </p>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.875rem;margin-bottom:1.25rem;">
+                        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border-color);padding-bottom:0.35rem;">
+                            <span style="color:var(--text-secondary);">Key Encryption Key (KEK):</span>
+                            <strong id="crypto-kek-version">Version v1</strong>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border-color);padding-bottom:0.35rem;">
+                            <span style="color:var(--text-secondary);">Encrypted Storage Objects:</span>
+                            <strong id="crypto-enc-count">-- objects (--%)</strong>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border-color);padding-bottom:0.35rem;">
+                            <span style="color:var(--text-secondary);">Key Derivation Function:</span>
+                            <span>PBKDF2-HMAC-SHA256 (100k iters)</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;">
+                            <span style="color:var(--text-secondary);">Nonce Safety:</span>
+                            <span style="color:#10b981;">100% Unique Random (Zero Reuse)</span>
+                        </div>
+                    </div>
+                    <button id="btn-rotate-key" class="btn btn-outline-accent btn-sm" style="width:100%;">
+                        🔄 Rotate Master Key (KEK)
+                    </button>
+                </div>
+
+                <!-- Card 2: RFC 6238 TOTP Multi-Factor Authentication -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">📱 Multi-Factor Authentication (MFA)</h2>
+                        <span class="badge badge-warning" id="mfa-status-badge">Checking...</span>
+                    </div>
+                    <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                        Enforce secondary verification via Google Authenticator or Microsoft Authenticator. Includes brute-force lockout defense and emergency recovery codes.
+                    </p>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.875rem;margin-bottom:1.25rem;">
+                        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border-color);padding-bottom:0.35rem;">
+                            <span style="color:var(--text-secondary);">Authentication Standard:</span>
+                            <span>RFC 6238 TOTP (30s Step)</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border-color);padding-bottom:0.35rem;">
+                            <span style="color:var(--text-secondary);">Emergency Recovery Codes:</span>
+                            <strong id="mfa-recovery-count">-- remaining</strong>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border-color);padding-bottom:0.35rem;">
+                            <span style="color:var(--text-secondary);">Brute-Force Rate Limiting:</span>
+                            <span style="color:#10b981;">5 Failures / 15m Lockout</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;">
+                            <span style="color:var(--text-secondary);">Account Protection Level:</span>
+                            <strong id="mfa-protection-level">Password Only</strong>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;">
+                        <button id="btn-manage-mfa" class="btn btn-primary btn-sm" style="flex:1;">
+                            📱 Set Up / Manage MFA
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 3: WORM Snapshot Retention & Immutability Matrix -->
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">🔒 WORM Immutable Snapshot Retention</h2>
+                    <span class="badge badge-mock">Simulated & Cloud WORM</span>
+                </div>
+                <!-- WORM Disclaimer Banner -->
+                <div style="background:rgba(59,130,246,0.1);border-left:4px solid #3b82f6;padding:0.75rem 1rem;border-radius:4px;margin-bottom:1rem;font-size:0.85rem;color:var(--text-secondary);">
+                    <strong style="color:#60a5fa;">ℹ️ WORM Retention Mode Transparency:</strong>
+                    Snapshots marked as <em>Simulated WORM</em> are protected by application-level retention logic preventing deletion and mutation. In live multi-cloud deployments, CloudVault maps this directly to AWS S3 Object Lock, Azure Immutability Policy, or Google Cloud Storage Bucket Lock.
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Snapshot #</th>
+                                <th>Name</th>
+                                <th>Created</th>
+                                <th>Retention Mode</th>
+                                <th>Provider Lock Type</th>
+                                <th>Lock Expiration</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="worm-snapshots-table-body">
+                            <tr><td colspan="7" style="text-align:center;">Loading snapshot retention data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- Safe Simulated Ransomware Testing Sandbox Panel -->
             <div class="card" style="margin-bottom:1.5rem;">
                 <div class="card-header">
@@ -446,7 +546,10 @@ GCS_REGION=us-central1
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title">Tamper-Evident SHA-256 Audit Log</h2>
-                    <span class="badge badge-passed" id="audit-chain-badge">⛓️ Hash Chain: Verified</span>
+                    <div style="display:flex;gap:0.5rem;align-items:center;">
+                        <span class="badge badge-passed" id="audit-chain-badge">⛓️ Hash Chain: Ready</span>
+                        <button id="verify-audit-chain-btn" class="btn btn-outline-accent btn-sm">Verify Hash Chain</button>
+                    </div>
                 </div>
                 <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
                     Every sensitive operation and AI action is permanently sealed in an immutable cryptographic hash chain where each entry includes the SHA-256 digest of the preceding record.
@@ -884,13 +987,15 @@ GCS_REGION=us-central1
         
         <div class="ai-suggestions-row">
             <button class="ai-pill" data-prompt="How many files are currently protected?">🛡️ Protected files?</button>
+            <button class="ai-pill" data-prompt="Are my backups encrypted?">🔐 Backups encrypted?</button>
+            <button class="ai-pill" data-prompt="Is MFA enabled?">📱 MFA enabled?</button>
+            <button class="ai-pill" data-prompt="Which snapshots are protected?">🔒 Protected snapshots</button>
+            <button class="ai-pill" data-prompt="When does a retention lock expire?">⏳ Lock expiry?</button>
+            <button class="ai-pill" data-prompt="Has my audit trail been tampered with?">⛓️ Audit tampered?</button>
+            <button class="ai-pill" data-prompt="Are my files safe to restore?">🛡️ Safe to restore?</button>
+            <button class="ai-pill" data-prompt="What security improvements do I need?">💡 Security improvements</button>
             <button class="ai-pill" data-prompt="Show my last five backups.">⏳ Recent backups</button>
             <button class="ai-pill" data-prompt="Restore a file.">📥 Restore a file</button>
-            <button class="ai-pill" data-prompt="How much storage have I saved?">💾 Storage saved?</button>
-            <button class="ai-pill" data-prompt="Is my backup system healthy?">🟢 System health?</button>
-            <button class="ai-pill" data-prompt="Which files have not been backed up recently?">🔍 Unprotected files?</button>
-            <button class="ai-pill" data-prompt="Explain my latest security alert.">🚨 Security alerts?</button>
-            <button class="ai-pill" data-prompt="Run an on-demand backup now.">⚡ Run backup</button>
             <button class="ai-pill" data-prompt="Verify my latest snapshot integrity.">🔍 Verify snapshot</button>
             <button class="ai-pill" data-prompt="Lock snapshot with WORM immutable retention.">🔒 Lock snapshot</button>
         </div>
@@ -909,6 +1014,37 @@ GCS_REGION=us-central1
             <input type="text" id="ai-chat-input" placeholder="Ask about backups, health, storage savings..." autocomplete="off">
             <button type="submit" id="ai-chat-send-btn" class="btn btn-primary btn-sm">Ask</button>
         </form>
+    </div>
+
+    <!-- MFA Management Modal -->
+    <div id="mfa-modal" class="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:500px;width:90%;margin:auto;max-height:90vh;overflow-y:auto;background:var(--card-bg, #1e293b);padding:1.5rem;border-radius:8px;border:1px solid var(--border-color, #334155);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1px solid var(--border-color);padding-bottom:0.5rem;">
+                <h3 id="mfa-modal-title" style="margin:0;font-size:1.15rem;">📱 Multi-Factor Authentication</h3>
+                <button class="btn-icon" onclick="document.getElementById('mfa-modal').style.display='none'">✕</button>
+            </div>
+            <div id="mfa-modal-body">
+                <!-- Dynamically populated by app.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Key Rotation Confirmation Modal -->
+    <div id="key-rotation-modal" class="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:440px;width:90%;margin:auto;background:var(--card-bg, #1e293b);padding:1.5rem;border-radius:8px;border:1px solid var(--border-color, #334155);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1px solid var(--border-color);padding-bottom:0.5rem;">
+                <h3 style="margin:0;font-size:1.15rem;">🔄 Rotate Master Key (KEK)</h3>
+                <button class="btn-icon" onclick="document.getElementById('key-rotation-modal').style.display='none'">✕</button>
+            </div>
+            <div style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1.25rem;">
+                <p>Rotating your Master Key increments your Key Encryption Key (KEK) version. All future backups will be encrypted under the new key version.</p>
+                <p style="margin-top:0.75rem;"><strong style="color:#10b981;">Zero Data Loss Guarantee:</strong> Older backups remain fully accessible and decryptable because their per-object Data Encryption Keys (DEKs) are securely preserved alongside key version metadata.</p>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('key-rotation-modal').style.display='none'">Cancel</button>
+                <button id="confirm-rotate-key-btn" class="btn btn-warning btn-sm">Confirm Key Rotation</button>
+            </div>
+        </div>
     </div>
 
     <!-- Toast Container -->

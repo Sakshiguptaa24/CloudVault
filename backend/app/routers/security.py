@@ -17,7 +17,9 @@ from backend.app.services.ransomware_service import (
     simulate_ransomware_scenario,
     calculate_shannon_entropy
 )
-from backend.app.ai.security import record_audit_log
+from backend.app.ai.security import record_audit_log, verify_audit_log_chain
+from backend.app.services.crypto_service import rotate_user_kek
+from backend.app.models import StorageObject
 
 router = APIRouter(prefix="/api/v1/security", tags=["Security & Anomaly Defense"])
 
@@ -270,3 +272,79 @@ def list_audit_logs(
             "created_at": l.created_at.isoformat()
         })
     return {"audit_logs": results, "count": len(results)}
+
+@router.get("/audit-logs/verify")
+def verify_audit_trail(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Verify the cryptographic hash-chain integrity of audit logs for the user.
+    Mathematically re-checks every link from genesis block to current head.
+    Detects any modified, deleted, or inserted historical records.
+    """
+    return verify_audit_log_chain(user_id=current_user.id, db=db)
+
+@router.get("/crypto/status")
+def get_crypto_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve zero-trust cryptographic posture, envelope encryption status,
+    and key version metrics without exposing any secret key material.
+    """
+    enc_count = db.query(StorageObject).filter(
+        StorageObject.user_id == current_user.id,
+        StorageObject.is_encrypted == True
+    ).count()
+
+    unenc_count = db.query(StorageObject).filter(
+        StorageObject.user_id == current_user.id,
+        StorageObject.is_encrypted == False
+    ).count()
+
+    plans = db.query(BackupPlan).filter(
+        BackupPlan.user_id == current_user.id,
+        BackupPlan.is_active == True
+    ).all()
+
+    all_plans_encrypted = len(plans) > 0 and all(p.encryption_enabled for p in plans)
+    key_ver = getattr(current_user, "current_key_version", 1) or 1
+
+    return {
+        "status": "ACTIVE",
+        "cipher": "AES-256-GCM (Authenticated Envelope Encryption)",
+        "kdf": "PBKDF2-HMAC-SHA256 (100,000 iterations)",
+        "key_version": key_ver,
+        "encrypted_objects_count": enc_count,
+        "unencrypted_objects_count": unenc_count,
+        "encryption_ratio_percent": round(enc_count / max(1, enc_count + unenc_count) * 100, 1),
+        "all_plans_encrypted": all_plans_encrypted,
+        "user_has_salt": bool(current_user.encryption_salt)
+    }
+
+@router.post("/crypto/rotate-key")
+def rotate_key(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Rotate user's Key Encryption Key (KEK).
+    Increments KEK version. New backups will use the new KEK.
+    Existing backups remain accessible via their per-object key_version metadata.
+    """
+    new_ver = rotate_user_kek(current_user.id, db)
+    record_audit_log(
+        user_id=current_user.id,
+        event_type="CRYPTO_KEY_ROTATED",
+        action=f"Rotated Key Encryption Key to version {new_ver}",
+        details={"new_key_version": new_ver},
+        db=db,
+        severity="WARNING"
+    )
+    return {
+        "status": "SUCCESS",
+        "message": f"Encryption key rotated successfully to version {new_ver}.",
+        "new_key_version": new_ver
+    }

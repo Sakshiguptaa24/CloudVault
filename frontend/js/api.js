@@ -288,6 +288,63 @@ class CloudVaultAPI {
         return await this.request("/api/v1/ai/capabilities");
     }
 
+    // Phase 4 Security Core Methods
+    async getCryptoStatus() {
+        return await this.request("/api/v1/security/crypto/status");
+    }
+
+    async rotateCryptoKey() {
+        return await this.request("/api/v1/security/crypto/rotate-key", {
+            method: "POST"
+        });
+    }
+
+    async getMFAStatus() {
+        return await this.request("/api/v1/auth/mfa/status");
+    }
+
+    async setupMFA() {
+        return await this.request("/api/v1/auth/mfa/setup", {
+            method: "POST"
+        });
+    }
+
+    async enableMFA(secret, code) {
+        return await this.request("/api/v1/auth/mfa/enable", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ secret, code })
+        });
+    }
+
+    async disableMFA(password, code) {
+        return await this.request("/api/v1/auth/mfa/disable", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password, code })
+        });
+    }
+
+    async regenerateRecoveryCodes(password, code) {
+        return await this.request("/api/v1/auth/mfa/regenerate-recovery-codes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password, code })
+        });
+    }
+
+    async verifyAuditTrail() {
+        return await this.request("/api/v1/security/audit-logs/verify");
+    }
+
+    async lockSnapshotWORM(snapshotId, retentionDays = 30) {
+        return await this.request(`/api/v1/recovery/snapshots/${snapshotId}/lock`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ retention_days: retentionDays })
+        });
+    }
+
     // Real-Time Server-Sent Events (SSE)
     connectSSE(onMessage, onError) {
         if (this.eventSource) {

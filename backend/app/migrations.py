@@ -40,6 +40,12 @@ def run_migrations(db_path: str = None):
             cursor.execute("ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN DEFAULT 0")
         if not column_exists("users", "encryption_salt"):
             cursor.execute("ALTER TABLE users ADD COLUMN encryption_salt VARCHAR(64)")
+        if not column_exists("users", "current_key_version"):
+            cursor.execute("ALTER TABLE users ADD COLUMN current_key_version INTEGER DEFAULT 1")
+        if not column_exists("users", "mfa_failed_attempts"):
+            cursor.execute("ALTER TABLE users ADD COLUMN mfa_failed_attempts INTEGER DEFAULT 0")
+        if not column_exists("users", "mfa_locked_until"):
+            cursor.execute("ALTER TABLE users ADD COLUMN mfa_locked_until DATETIME")
 
     # 2. Update 'backup_plans' table
     if table_exists("backup_plans"):
@@ -58,6 +64,12 @@ def run_migrations(db_path: str = None):
             cursor.execute("ALTER TABLE snapshots ADD COLUMN verification_status VARCHAR(20) DEFAULT 'UNVERIFIED'")
         if not column_exists("snapshots", "verified_at"):
             cursor.execute("ALTER TABLE snapshots ADD COLUMN verified_at DATETIME")
+        if not column_exists("snapshots", "retention_mode"):
+            cursor.execute("ALTER TABLE snapshots ADD COLUMN retention_mode VARCHAR(30) DEFAULT 'SIMULATED'")
+        if not column_exists("snapshots", "provider_lock_type"):
+            cursor.execute("ALTER TABLE snapshots ADD COLUMN provider_lock_type VARCHAR(50) DEFAULT 'MOCK_SIMULATED'")
+        if not column_exists("snapshots", "retention_period_days"):
+            cursor.execute("ALTER TABLE snapshots ADD COLUMN retention_period_days INTEGER DEFAULT 0")
 
     # 4. Update 'storage_objects' table
     if table_exists("storage_objects"):
@@ -67,6 +79,14 @@ def run_migrations(db_path: str = None):
             cursor.execute("ALTER TABLE storage_objects ADD COLUMN encryption_algo VARCHAR(30) DEFAULT 'AES-256-GCM'")
         if not column_exists("storage_objects", "encryption_nonce"):
             cursor.execute("ALTER TABLE storage_objects ADD COLUMN encryption_nonce VARCHAR(64)")
+        if not column_exists("storage_objects", "encrypted_dek"):
+            cursor.execute("ALTER TABLE storage_objects ADD COLUMN encrypted_dek TEXT")
+        if not column_exists("storage_objects", "dek_nonce"):
+            cursor.execute("ALTER TABLE storage_objects ADD COLUMN dek_nonce VARCHAR(64)")
+        if not column_exists("storage_objects", "key_version"):
+            cursor.execute("ALTER TABLE storage_objects ADD COLUMN key_version INTEGER DEFAULT 1")
+        if not column_exists("storage_objects", "aad_tag"):
+            cursor.execute("ALTER TABLE storage_objects ADD COLUMN aad_tag VARCHAR(255)")
 
     # 5. Create or update 'audit_logs' table
     cursor.execute("""
