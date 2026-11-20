@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from backend.app.config import settings, BASE_DIR
 from backend.app.database import engine, Base
 from backend.app.storage import get_storage_provider
-from backend.app.routers import auth, backups, recovery, scheduler, ai, security, analytics, dr, events
+from backend.app.routers import auth, backups, recovery, scheduler, ai, security, analytics, dr, events, storage_api
 from backend.app.services.scheduler_service import scheduler as background_scheduler
 
 # Create database tables automatically
@@ -55,6 +55,7 @@ app.include_router(security.router)
 app.include_router(analytics.router)
 app.include_router(dr.router)
 app.include_router(events.router)
+app.include_router(storage_api.router)
 
 # Lifecycle events
 @app.on_event("startup")

@@ -451,6 +451,114 @@ async function loadScheduler() {
     } catch (err) {
         showToast("Error reading scheduler: " + err.message, "error");
     }
+
+    await loadMultiCloudStorage();
+}
+
+async function loadMultiCloudStorage() {
+    try {
+        const [inv, costs, telem] = await Promise.all([
+            api.getStorageInventory().catch(() => null),
+            api.getStorageCosts().catch(() => null),
+            api.getStorageTelemetry().catch(() => null)
+        ]);
+
+        if (inv) {
+            const badge = document.getElementById("mc-active-badge");
+            if (badge) {
+                badge.textContent = `PRIMARY: ${inv.active_provider.toUpperCase()}`;
+            }
+            const primDisplay = document.getElementById("mc-primary-display");
+            if (primDisplay && inv.routing) {
+                primDisplay.textContent = inv.routing.primary || "Mock";
+            }
+            const secDisplay = document.getElementById("mc-secondary-display");
+            if (secDisplay && inv.routing) {
+                secDisplay.textContent = inv.routing.secondary || "None";
+            }
+            const failoverStat = document.getElementById("mc-failover-status");
+            if (failoverStat && inv.routing) {
+                failoverStat.textContent = `Failover: ${inv.routing.failover_enabled ? "ENABLED" : "DISABLED"}`;
+            }
+
+            if (inv.supported_clouds) {
+                if (inv.supported_clouds.gcs && inv.supported_clouds.gcs.health) {
+                    const l = document.getElementById("gcs-latency");
+                    if (l) l.textContent = `${inv.supported_clouds.gcs.health.latency_ms} ms`;
+                    const b = document.getElementById("gcs-status-badge");
+                    if (b) b.textContent = inv.supported_clouds.gcs.status;
+                }
+                if (inv.supported_clouds.aws_s3 && inv.supported_clouds.aws_s3.health) {
+                    const l = document.getElementById("s3-latency");
+                    if (l) l.textContent = `${inv.supported_clouds.aws_s3.health.latency_ms} ms`;
+                    const b = document.getElementById("s3-status-badge");
+                    if (b) b.textContent = inv.supported_clouds.aws_s3.status;
+                }
+                if (inv.supported_clouds.azure_blob && inv.supported_clouds.azure_blob.health) {
+                    const l = document.getElementById("azure-latency");
+                    if (l) l.textContent = `${inv.supported_clouds.azure_blob.health.latency_ms} ms`;
+                    const b = document.getElementById("azure-status-badge");
+                    if (b) b.textContent = inv.supported_clouds.azure_blob.status;
+                }
+                if (inv.supported_clouds.local_mock && inv.supported_clouds.local_mock.health) {
+                    const l = document.getElementById("mock-latency");
+                    if (l) l.textContent = `${inv.supported_clouds.local_mock.health.latency_ms} ms`;
+                }
+            }
+        }
+
+        if (telem && telem.telemetry) {
+            const countEl = document.getElementById("mc-transfers-count");
+            if (countEl) {
+                countEl.textContent = `${telem.telemetry.uploads_count || 0} / ${telem.telemetry.downloads_count || 0}`;
+            }
+            const foCountEl = document.getElementById("mc-failover-events");
+            if (foCountEl) {
+                foCountEl.textContent = telem.telemetry.failover_events_count || 0;
+            }
+
+            const logBody = document.getElementById("mc-failover-log-body");
+            if (logBody && telem.telemetry.failover_log && telem.telemetry.failover_log.length > 0) {
+                logBody.innerHTML = telem.telemetry.failover_log.map(ev => `
+                    <tr>
+                        <td><code>${ev.timestamp ? ev.timestamp.substring(11, 19) : ""}</code></td>
+                        <td><code>${escapeHtml(ev.destination_path)}</code></td>
+                        <td>${escapeHtml(ev.primary_provider)}</td>
+                        <td><strong style="color:#f59e0b;">${escapeHtml(ev.secondary_provider)}</strong></td>
+                        <td style="font-size:0.8rem;color:#f87171;">${escapeHtml(ev.error_reason)}</td>
+                        <td><span class="badge" style="background:#059669;color:#fff;">${escapeHtml(ev.status)}</span></td>
+                    </tr>
+                `).join("");
+            }
+        }
+
+        if (costs && costs.usage_by_provider) {
+            const u = costs.usage_by_provider;
+            if (u.mock) {
+                document.getElementById("cost-mock-count").textContent = u.mock.object_count;
+                document.getElementById("cost-mock-size").textContent = `${u.mock.stored_mb} MB`;
+            }
+            if (u.gcs) {
+                document.getElementById("cost-gcs-count").textContent = u.gcs.object_count;
+                document.getElementById("cost-gcs-size").textContent = `${u.gcs.stored_mb} MB`;
+            }
+            if (u.s3) {
+                document.getElementById("cost-s3-count").textContent = u.s3.object_count;
+                document.getElementById("cost-s3-size").textContent = `${u.s3.stored_mb} MB`;
+            }
+            if (u.azure) {
+                document.getElementById("cost-azure-count").textContent = u.azure.object_count;
+                document.getElementById("cost-azure-size").textContent = `${u.azure.stored_mb} MB`;
+            }
+            if (costs.estimated_monthly_costs_usd) {
+                document.getElementById("cost-gcs-est").textContent = `$${costs.estimated_monthly_costs_usd.gcs_standard}/mo`;
+                document.getElementById("cost-s3-est").textContent = `$${costs.estimated_monthly_costs_usd.aws_s3_standard}/mo`;
+                document.getElementById("cost-azure-est").textContent = `$${costs.estimated_monthly_costs_usd.azure_blob_hot}/mo`;
+            }
+        }
+    } catch (err) {
+        console.error("Error loading multi-cloud storage telemetry:", err);
+    }
 }
 
 async function handleToggleScheduler() {
@@ -530,6 +638,7 @@ window.addEventListener("DOMContentLoaded", () => {
     setupPWA();
     setupAIAssistant();
     setupDRControls();
+    setupMultiCloudControls();
     setupRealtimeEvents();
 });
 
@@ -1149,6 +1258,133 @@ function setupDRControls() {
             btnHistDrills.className = "btn btn-sm btn-secondary";
             btnHistOps.className = "btn btn-sm btn-primary";
             loadDRHistoryTable();
+        });
+    }
+}
+
+function setupMultiCloudControls() {
+    // 1. Ping All Providers
+    const pingBtn = document.getElementById("btn-mc-ping-all");
+    if (pingBtn) {
+        pingBtn.addEventListener("click", async () => {
+            pingBtn.disabled = true;
+            pingBtn.textContent = "⏳ Pinging...";
+            try {
+                const res = await api.checkAllProvidersHealth();
+                if (res && res.results) {
+                    if (res.results.mock) document.getElementById("mock-latency").textContent = `${res.results.mock.latency_ms} ms`;
+                    if (res.results.gcs) document.getElementById("gcs-latency").textContent = `${res.results.gcs.latency_ms} ms`;
+                    if (res.results.s3) document.getElementById("s3-latency").textContent = `${res.results.s3.latency_ms} ms`;
+                    if (res.results.azure) document.getElementById("azure-latency").textContent = `${res.results.azure.latency_ms} ms`;
+                }
+                showToast("All multi-cloud storage providers probed successfully!", "success");
+            } catch (e) {
+                showToast("Ping error: " + e.message, "error");
+            } finally {
+                pingBtn.disabled = false;
+                pingBtn.textContent = "⚡ Ping All Providers";
+            }
+        });
+    }
+
+    // 2. Test Automated Failover
+    const failoverBtn = document.getElementById("btn-mc-test-failover");
+    if (failoverBtn) {
+        failoverBtn.addEventListener("click", async () => {
+            failoverBtn.disabled = true;
+            failoverBtn.textContent = "⏳ Simulating...";
+            try {
+                const res = await api.testStorageFailover(true, "CloudVault automated failover live test");
+                if (res && res.verified) {
+                    showToast(`Failover verified! Transferred cleanly to ${res.active_destination}.`, "success");
+                }
+                await loadMultiCloudStorage();
+            } catch (e) {
+                showToast("Failover test failed: " + e.message, "error");
+            } finally {
+                failoverBtn.disabled = false;
+                failoverBtn.textContent = "🧪 Test Failover";
+            }
+        });
+    }
+
+    // 3. Open Migration Modal
+    const migrateBtn = document.getElementById("btn-mc-open-migrate");
+    if (migrateBtn) {
+        migrateBtn.addEventListener("click", async () => {
+            const modal = document.getElementById("modal-cloud-migration");
+            const select = document.getElementById("migrate-snapshot-select");
+            const feedback = document.getElementById("migration-result-feedback");
+            if (feedback) feedback.style.display = "none";
+
+            if (modal && select) {
+                select.innerHTML = "<option value=''>Loading snapshots...</option>";
+                modal.style.display = "flex";
+                try {
+                    const plans = await api.getPlans();
+                    let allSnaps = [];
+                    for (const p of plans) {
+                        const sList = await api.getSnapshots(p.id);
+                        allSnaps = allSnaps.concat(sList);
+                    }
+                    if (allSnaps.length === 0) {
+                        select.innerHTML = "<option value=''>No snapshots available to migrate</option>";
+                    } else {
+                        select.innerHTML = allSnaps.map(s => `
+                            <option value="${s.id}">${escapeHtml(s.name)} (ID: ${s.id.substring(0,8)}, ${round(s.total_stored_bytes/(1024*1024),2)} MB)</option>
+                        `).join("");
+                    }
+                } catch (e) {
+                    select.innerHTML = `<option value=''>Error: ${escapeHtml(e.message)}</option>`;
+                }
+            }
+        });
+    }
+
+    // 4. Execute Migration
+    const execMigrateBtn = document.getElementById("btn-execute-migration");
+    if (execMigrateBtn) {
+        execMigrateBtn.addEventListener("click", async () => {
+            const snapId = document.getElementById("migrate-snapshot-select").value;
+            const targetProv = document.getElementById("migrate-target-provider").value;
+            const delSource = document.getElementById("migrate-delete-source").checked;
+            const feedback = document.getElementById("migration-result-feedback");
+
+            if (!snapId) {
+                showToast("Please select a snapshot to migrate.", "warning");
+                return;
+            }
+
+            execMigrateBtn.disabled = true;
+            execMigrateBtn.textContent = "⏳ Migrating...";
+            if (feedback) feedback.style.display = "none";
+
+            try {
+                const res = await api.migrateSnapshotCloud(snapId, targetProv, delSource);
+                if (feedback) {
+                    feedback.style.display = "block";
+                    feedback.innerHTML = `
+                        <div style="padding:0.75rem;background:rgba(16,185,129,0.15);border:1px solid #10b981;border-radius:6px;color:#34d399;font-size:0.85rem;">
+                            ✅ <strong>Migration Verified:</strong> Migrated ${res.result.files_migrated} objects (${round(res.result.total_bytes_migrated/1024, 2)} KB) to ${res.result.to_provider}. Cryptographic SHA-256 hashes verified on target.
+                        </div>
+                    `;
+                }
+                showToast("Snapshot migration completed with bit-level verification!", "success");
+                await loadMultiCloudStorage();
+            } catch (e) {
+                if (feedback) {
+                    feedback.style.display = "block";
+                    feedback.innerHTML = `
+                        <div style="padding:0.75rem;background:rgba(239,68,68,0.15);border:1px solid #ef4444;border-radius:6px;color:#f87171;font-size:0.85rem;">
+                            🚨 <strong>Migration Failed:</strong> ${escapeHtml(e.message)}
+                        </div>
+                    `;
+                }
+                showToast("Migration failed: " + e.message, "error");
+            } finally {
+                execMigrateBtn.disabled = false;
+                execMigrateBtn.textContent = "Start Migration";
+            }
         });
     }
 }

@@ -254,6 +254,207 @@
                 <button id="scheduler-toggle-btn" class="btn btn-danger">Stop Scheduler</button>
             </div>
 
+            <!-- Multi-Cloud Storage & Intelligent Routing Command Center -->
+            <div class="card" style="margin-bottom:1.5rem;background:linear-gradient(135deg, rgba(30,41,59,0.9), rgba(15,23,42,0.95));border:1px solid rgba(59,130,246,0.3);">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+                    <div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <h2 class="card-title" style="margin:0;font-size:1.35rem;">☁️ Multi-Cloud Storage Architecture & Routing</h2>
+                            <span id="mc-active-badge" class="badge" style="background:#2563eb;color:#fff;">PRIMARY: MOCK</span>
+                        </div>
+                        <p style="color:var(--text-secondary);font-size:0.875rem;margin:0.35rem 0 0 0;">
+                            Unified object storage abstraction supporting Google Cloud Storage, AWS S3, Azure Blob, and Local Mock Storage with zero-loss automated failover.
+                        </p>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                        <button id="btn-mc-ping-all" class="btn btn-secondary">⚡ Ping All Providers</button>
+                        <button id="btn-mc-test-failover" class="btn btn-primary">🧪 Test Failover</button>
+                        <button id="btn-mc-open-migrate" class="btn btn-outline" style="border:1px solid rgba(255,255,255,0.2);">📦 Migrate Snapshot</button>
+                    </div>
+                </div>
+
+                <!-- Routing & Telemetry KPIs -->
+                <div class="dr-kpi-grid" style="grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:1rem;margin-top:1.5rem;">
+                    <div class="dr-kpi-card">
+                        <div class="dr-kpi-label">PRIMARY PROVIDER</div>
+                        <div id="mc-primary-display" class="dr-kpi-value" style="font-size:1.15rem;color:var(--primary);">Local Mock</div>
+                        <div id="mc-primary-detail" class="dr-kpi-subtext">Active Write Destination</div>
+                    </div>
+                    <div class="dr-kpi-card">
+                        <div class="dr-kpi-label">SECONDARY FAILOVER</div>
+                        <div id="mc-secondary-display" class="dr-kpi-value" style="font-size:1.15rem;color:#f59e0b;">Amazon S3 (Simulated)</div>
+                        <div id="mc-failover-status" class="dr-kpi-subtext">Failover: ENABLED</div>
+                    </div>
+                    <div class="dr-kpi-card">
+                        <div class="dr-kpi-label">OBJECT TRANSFERS</div>
+                        <div id="mc-transfers-count" class="dr-kpi-value" style="font-size:1.25rem;">0 / 0</div>
+                        <div class="dr-kpi-subtext">Uploads / Downloads</div>
+                    </div>
+                    <div class="dr-kpi-card">
+                        <div class="dr-kpi-label">FAILOVER EVENTS</div>
+                        <div id="mc-failover-events" class="dr-kpi-value" style="font-size:1.25rem;color:#38bdf8;">0</div>
+                        <div class="dr-kpi-subtext">Zero Data Loss Recoveries</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4-Provider Capability & Health Matrix -->
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">Multi-Cloud Provider Matrix & Health Telemetry</h2>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:1rem;margin-top:0.75rem;">
+                    <!-- GCS Card -->
+                    <div style="background:var(--bg-secondary);padding:1rem;border-radius:8px;border:1px solid rgba(255,255,255,0.08);">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                            <strong>Google Cloud Storage</strong>
+                            <span id="gcs-status-badge" class="badge" style="background:#059669;color:#fff;">READY</span>
+                        </div>
+                        <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5;">
+                            <div>Bucket: <code id="gcs-bucket-name">gs://cloudvault-storage</code></div>
+                            <div>Latency: <strong id="gcs-latency" style="color:var(--text-primary);">0.8 ms</strong></div>
+                            <div>WORM: <span style="color:#10b981;">Bucket Lock Compliant</span></div>
+                            <div>Tiering: Standard, Nearline, Coldline, Archive</div>
+                            <div>Pricing: $0.020 / GB / mo</div>
+                        </div>
+                    </div>
+
+                    <!-- AWS S3 Card -->
+                    <div style="background:var(--bg-secondary);padding:1rem;border-radius:8px;border:1px solid rgba(255,255,255,0.08);">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                            <strong>Amazon Web Services (S3)</strong>
+                            <span id="s3-status-badge" class="badge" style="background:#f59e0b;color:#000;">SIMULATED</span>
+                        </div>
+                        <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5;">
+                            <div>Bucket: <code id="s3-bucket-name">s3://cloudvault-s3-backup</code></div>
+                            <div>Latency: <strong id="s3-latency" style="color:var(--text-primary);">0.5 ms</strong></div>
+                            <div>WORM: <span style="color:#10b981;">S3 Object Lock Compliant</span></div>
+                            <div>Tiering: Standard, Intelligent, Glacier, Deep</div>
+                            <div>Pricing: $0.023 / GB / mo</div>
+                        </div>
+                    </div>
+
+                    <!-- Azure Blob Card -->
+                    <div style="background:var(--bg-secondary);padding:1rem;border-radius:8px;border:1px solid rgba(255,255,255,0.08);">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                            <strong>Microsoft Azure Blob</strong>
+                            <span id="azure-status-badge" class="badge" style="background:#f59e0b;color:#000;">SIMULATED</span>
+                        </div>
+                        <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5;">
+                            <div>Container: <code id="azure-container-name">azure://cloudvault-backups</code></div>
+                            <div>Latency: <strong id="azure-latency" style="color:var(--text-primary);">0.6 ms</strong></div>
+                            <div>WORM: <span style="color:#10b981;">Immutable Blob Legal Hold</span></div>
+                            <div>Tiering: Hot, Cool, Cold, Archive</div>
+                            <div>Pricing: $0.018 / GB / mo</div>
+                        </div>
+                    </div>
+
+                    <!-- Local Mock Card -->
+                    <div style="background:var(--bg-secondary);padding:1rem;border-radius:8px;border:1px solid rgba(59,130,246,0.3);">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                            <strong>Local Air-Gapped Mock</strong>
+                            <span id="mock-status-badge" class="badge" style="background:#2563eb;color:#fff;">ACTIVE</span>
+                        </div>
+                        <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5;">
+                            <div>Location: <code>data/mock_storage</code></div>
+                            <div>Latency: <strong id="mock-latency" style="color:var(--text-primary);">0.1 ms</strong></div>
+                            <div>WORM: <span style="color:#10b981;">Simulated Retention Lock</span></div>
+                            <div>Tiering: Standard, Cold Simulated</div>
+                            <div>Pricing: $0.00 / mo (Zero Cost)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Storage Distribution & Cost Estimation Card -->
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">Stored Data Distribution & Estimated Monthly Costs</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Storage Provider</th>
+                                <th>Status</th>
+                                <th>Objects Stored</th>
+                                <th>Total Data</th>
+                                <th>Base Rate</th>
+                                <th>Est. Monthly Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mc-cost-distribution-body">
+                            <tr>
+                                <td><strong>Local Air-Gapped Mock</strong></td>
+                                <td><span class="badge" style="background:#2563eb;color:#fff;">ACTIVE</span></td>
+                                <td id="cost-mock-count">0</td>
+                                <td id="cost-mock-size">0.00 MB</td>
+                                <td>$0.00 / GB</td>
+                                <td style="color:#10b981;"><strong>$0.00 / mo</strong></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Google Cloud Storage</strong></td>
+                                <td><span class="badge" style="background:#059669;color:#fff;">READY</span></td>
+                                <td id="cost-gcs-count">0</td>
+                                <td id="cost-gcs-size">0.00 MB</td>
+                                <td>$0.020 / GB</td>
+                                <td id="cost-gcs-est">$0.00 / mo</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Amazon Web Services (S3)</strong></td>
+                                <td><span class="badge" style="background:#f59e0b;color:#000;">SIMULATED</span></td>
+                                <td id="cost-s3-count">0</td>
+                                <td id="cost-s3-size">0.00 MB</td>
+                                <td>$0.023 / GB</td>
+                                <td id="cost-s3-est">$0.00 / mo</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Microsoft Azure Blob</strong></td>
+                                <td><span class="badge" style="background:#f59e0b;color:#000;">SIMULATED</span></td>
+                                <td id="cost-azure-count">0</td>
+                                <td id="cost-azure-size">0.00 MB</td>
+                                <td>$0.018 / GB</td>
+                                <td id="cost-azure-est">$0.00 / mo</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top:1rem;padding:0.75rem 1rem;background:rgba(234,179,8,0.1);border-left:3px solid #eab308;border-radius:4px;font-size:0.8rem;color:#fde047;">
+                    ⚠️ <strong>Cost Estimation Notice:</strong> Stated costs are modeled estimates derived from published hyperscaler rate cards ($/GB/month). Actual provider billing depends on API operation tiers (Class A/B), regional egress, and minimum retention commitments. CloudVault defaults to Local Mock Storage with $0.00 cloud infrastructure spend.
+                </div>
+            </div>
+
+            <!-- Failover Audit Log & Telemetry Card -->
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h2 class="card-title">Multi-Cloud Failover Audit Log</h2>
+                </div>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">
+                    Chronological audit trail of automated routing failovers triggered by transient network timeouts or provider unavailability.
+                </p>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Object Path</th>
+                                <th>Primary Provider</th>
+                                <th>Failover Provider</th>
+                                <th>Trigger Reason</th>
+                                <th>Result</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mc-failover-log-body">
+                            <tr>
+                                <td colspan="6" style="text-align:center;color:var(--text-secondary);padding:1.5rem;">
+                                    No failover events recorded. Primary storage provider is healthy and responsive.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title">Google Cloud Storage Integration Guide</h2>
@@ -1215,6 +1416,47 @@ GCS_REGION=us-central1
             </div>
             <div id="dr-sandbox-modal-body">
                 <!-- Dynamically populated by app.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Multi-Cloud Snapshot Migration Modal -->
+    <div id="modal-cloud-migration" class="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:600px;width:92%;margin:auto;max-height:85vh;overflow-y:auto;background:var(--card-bg, #1e293b);padding:1.5rem;border-radius:10px;border:1px solid #3b82f6;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1px solid var(--border-color);padding-bottom:0.5rem;">
+                <h3 style="margin:0;font-size:1.2rem;color:#60a5fa;">📦 Cross-Cloud Snapshot Migration</h3>
+                <button class="btn-icon" onclick="document.getElementById('modal-cloud-migration').style.display='none'">✕</button>
+            </div>
+            <div id="migration-modal-body">
+                <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">
+                    Migrate all storage objects belonging to a snapshot to a target cloud provider. CloudVault cryptographically verifies bit-for-bit SHA-256 digests before updating database pointers.
+                </p>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label class="form-label" style="font-size:0.85rem;">Select Snapshot to Migrate</label>
+                    <select id="migrate-snapshot-select" class="form-control" style="width:100%;padding:0.6rem;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:6px;">
+                        <option value="">Loading snapshots...</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label class="form-label" style="font-size:0.85rem;">Target Cloud Storage Provider</label>
+                    <select id="migrate-target-provider" class="form-control" style="width:100%;padding:0.6rem;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:6px;">
+                        <option value="s3">Amazon S3 (s3://cloudvault-s3-backup)</option>
+                        <option value="azure">Microsoft Azure Blob (azure://cloudvault-backups)</option>
+                        <option value="gcs">Google Cloud Storage (gs://cloudvault-storage)</option>
+                        <option value="mock">Local Air-Gapped Mock Storage (mock://)</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:1.5rem;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
+                        <input type="checkbox" id="migrate-delete-source">
+                        Delete source objects after verified transfer to target cloud
+                    </label>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
+                    <button class="btn btn-secondary" onclick="document.getElementById('modal-cloud-migration').style.display='none'">Cancel</button>
+                    <button id="btn-execute-migration" class="btn btn-primary">Start Migration</button>
+                </div>
+                <div id="migration-result-feedback" style="margin-top:1rem;display:none;"></div>
             </div>
         </div>
     </div>

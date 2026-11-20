@@ -297,9 +297,43 @@ class CloudVaultAPI {
         return await this.request("/api/v1/analytics/cadence-recommendations");
     }
 
-    // Multi-Cloud
+    // Multi-Cloud Storage Core
     async getMultiClouds() {
         return await this.request("/api/v1/storage/clouds");
+    }
+
+    async getStorageInventory() {
+        return await this.request("/api/v1/storage/inventory");
+    }
+
+    async getStorageProviders() {
+        return await this.request("/api/v1/storage/providers");
+    }
+
+    async checkAllProvidersHealth() {
+        return await this.request("/api/v1/storage/health-all", { method: "POST" });
+    }
+
+    async getStorageTelemetry() {
+        return await this.request("/api/v1/storage/telemetry");
+    }
+
+    async testStorageFailover(simulatePrimaryFailure = true, testPayload = "Failover verification payload") {
+        return await this.request("/api/v1/storage/failover/test", {
+            method: "POST",
+            body: JSON.stringify({ simulate_primary_failure: simulatePrimaryFailure, test_payload: testPayload })
+        });
+    }
+
+    async migrateSnapshotCloud(snapshotId, targetProvider, deleteSource = false) {
+        return await this.request("/api/v1/storage/migrate", {
+            method: "POST",
+            body: JSON.stringify({ snapshot_id: snapshotId, target_provider: targetProvider, delete_source: deleteSource })
+        });
+    }
+
+    async getStorageCosts() {
+        return await this.request("/api/v1/storage/costs");
     }
 
     // Scheduler

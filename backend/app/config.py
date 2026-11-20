@@ -19,8 +19,13 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'data' / 'cloudvault.db'}"
 
-    # Storage Provider: 'mock' or 'gcs'
+    # Storage Provider & Multi-Cloud Routing: 'mock', 'gcs', 's3', 'azure'
     STORAGE_PROVIDER: str = "mock"
+    STORAGE_SECONDARY_PROVIDER: str = "s3"
+    STORAGE_FAILOVER_ENABLED: bool = True
+    STORAGE_MAX_RETRIES: int = 3
+    STORAGE_RETRY_BACKOFF: float = 0.5
+    STORAGE_TIMEOUT_SECONDS: int = 10
     MOCK_STORAGE_DIR: str = str(BASE_DIR / "data" / "mock_storage")
 
     # Google Cloud Storage (Optional)
@@ -29,6 +34,16 @@ class Settings(BaseSettings):
     GOOGLE_APPLICATION_CREDENTIALS: str = ""
     GCS_CREDENTIALS_JSON: str = ""  # Service account JSON string
     GCS_REGION: str = "us-central1"
+
+    # AWS S3 (Optional)
+    AWS_S3_BUCKET: str = "cloudvault-s3-backup"
+    AWS_REGION: str = "us-east-1"
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+
+    # Azure Blob Storage (Optional)
+    AZURE_CONTAINER: str = "cloudvault-backups"
+    AZURE_STORAGE_CONNECTION_STRING: str = ""
 
     # AI Anomaly & Ransomware Detection Thresholds
     RANSOMWARE_ENTROPY_THRESHOLD: float = 7.50

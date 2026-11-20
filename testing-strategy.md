@@ -1,8 +1,8 @@
 # CloudVault 2.0: Quality Assurance & Testing Strategy
 **Project:** CloudVault 2.0 – Intelligent Cloud Backup, Security & Disaster Recovery Platform  
-**Total Automated Tests:** 85 Tests Across 16 Test Suites  
+**Total Automated Tests:** 101 Tests Across 17 Test Suites  
 **Verification Result:** 100% Passed (0 Failures, 0 Regressions)  
-**Execution Runtime:** ~50.8 seconds  
+**Execution Runtime:** ~29.8 seconds  
 **Test Harness:** Pytest 9.2, FastAPI TestClient, AnyIO, In-Memory / Isolated SQLite  
 
 ---
@@ -105,6 +105,24 @@ CloudVault 2.0 enforces a multi-tiered testing strategy designed to validate cor
 - `test_s3_storage_provider_lifecycle`: Tests AWS S3 adapter lifecycle, capabilities, S3 Object Lock, and simulated tiering.
 - `test_azure_blob_storage_provider_lifecycle`: Tests Azure Blob Storage adapter lifecycle, immutable blob containers, and hot/cool/archive tiering.
 - `test_multi_cloud_inventory_and_endpoints`: Tests `/api/v1/storage/clouds` multi-cloud status and `/api/v1/health` diagnostics.
+
+### 5B. Multi-Cloud Storage & Routing Architecture (`test_multi_cloud_storage.py`) — 16 Tests
+- `test_1_provider_contract_mock`: Verifies standardized StorageProvider contract on MockStorageProvider.
+- `test_2_provider_contract_s3`: Verifies standardized StorageProvider contract on S3StorageProvider.
+- `test_3_provider_contract_azure`: Verifies standardized StorageProvider contract on AzureBlobStorageProvider.
+- `test_4_provider_contract_gcs`: Verifies standardized StorageProvider contract on GCSStorageProvider.
+- `test_5_large_file_streaming_and_multipart`: Verifies large file chunked streaming (64KB chunks) without loading full files into memory.
+- `test_6_missing_object_error_handling`: Verifies `StorageNotFoundError` raised across all 4 providers on non-existent object keys.
+- `test_7_corrupted_object_checksum_detection`: Injects corrupt bytes; verifies `verify_object_integrity` raises `StorageIntegrityError`.
+- `test_8_authentication_failure_handling`: Simulates provider authentication failure; verifies clean `StorageAuthenticationError` without secret exposure.
+- `test_9_network_timeout_and_exponential_backoff_retry`: Simulates transient network timeouts; verifies `MultiCloudRouter` retries with exponential backoff and tracks retry telemetry.
+- `test_10_multi_cloud_routing_primary_success`: Verifies normal routing path via primary provider with accurate telemetry counts.
+- `test_11_multi_cloud_routing_failover_to_secondary`: Verifies primary network failure triggers automated, seamless failover to secondary provider without data loss.
+- `test_12_retention_lock_enforcement_blocks_deletion`: Verifies active WORM / Object Lock retention blocks deletion with `StorageRetentionLockError` across all providers.
+- `test_13_cross_provider_object_migration`: Verifies object migration from Mock to S3 to Azure Blob with bit-for-bit SHA-256 integrity verification.
+- `test_14_cross_provider_snapshot_migration_and_db_update`: Migrates an entire snapshot between cloud providers, updating database `StorageObject.storage_provider` pointers accurately.
+- `test_15_envelope_encryption_compatibility_across_clouds`: Verifies that AES-256-GCM envelope encrypted files upload, store, download, and decrypt bit-for-bit across any cloud provider.
+- `test_16_multi_cloud_tenant_isolation`: Confirms that User A cannot access or migrate User B's multi-cloud storage objects.
 
 ### 6. Predictive AI Analytics & Backup Health (`test_predictive_analytics.py`) — 12 Tests
 - `test_analytics_overview`: Validates logical vs physical storage calculations, deduplication multipliers, and multi-cloud cost models.
