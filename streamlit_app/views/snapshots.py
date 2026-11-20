@@ -99,6 +99,14 @@ def render_snapshots(client: CloudVaultClient):
                         conflict_strategy=strat
                     )
                     st.success(f"Restored! Path: {res.get('destination')}. Verified SHA-256 integrity.")
+                    if res.get("file_bytes"):
+                        import os
+                        st.download_button(
+                            label=f"💾 Download Restored File ({os.path.basename(res.get('destination', 'restored_file'))})",
+                            data=res.get("file_bytes"),
+                            file_name=os.path.basename(res.get("destination", "restored_file")),
+                            key="btn_dl_restored"
+                        )
                 except APIError as e:
                     st.error(f"Restore failed: {e.detail}")
                 except Exception as e:

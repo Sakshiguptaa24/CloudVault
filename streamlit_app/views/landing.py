@@ -18,17 +18,31 @@ def render_landing(client: CloudVaultClient):
     try:
         health = client.health_check()
         h_status = health.get("status")
+        is_demo = health.get("demo_mode", False)
 
         if h_status in ("healthy", "ok"):
             storage_name = health.get("storage_provider", "mock").upper()
             version = health.get("version", "2.0.0")
             st.markdown(f"""
-            <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 30px;">
-                <span class="badge badge-success">● Backend Online (v{version})</span>
+            <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+                <span class="badge badge-success">● {'Demo Engine Active' if is_demo else 'Backend Online'} (v{version})</span>
                 <span class="badge badge-info">Storage Engine: {storage_name}</span>
                 <span class="badge badge-success">Zero-Trust AES-256-GCM</span>
             </div>
             """, unsafe_allow_html=True)
+
+            if is_demo:
+                st.markdown("""
+                <div style="background: rgba(14, 165, 233, 0.12); border: 1px solid #0284c7; border-radius: 8px; padding: 14px 20px; margin-bottom: 25px; text-align: center;">
+                    <h4 style="color: #38bdf8; margin: 0 0 6px 0;">⚡ Interactive Public Demonstration</h4>
+                    <p style="color: #cbd5e1; margin: 0 0 12px 0; font-size: 0.92rem;">
+                        Explore autonomous ransomware defense, live deduplication, disaster recovery drills, and AI copilot with pre-loaded sample telemetry.
+                    </p>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">
+                        Zero cloud cost • Air-gapped synthetic data • No external server or credit card required
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
         elif h_status == "cold_start":
             st.markdown("""
             <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 20px;">
@@ -67,6 +81,22 @@ def render_landing(client: CloudVaultClient):
         if is_authenticated():
             if st.button("🚀 Enter Disaster Recovery Dashboard", use_container_width=True, type="primary"):
                 navigate_to("Dashboard")
+            if is_demo:
+                st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
+                qc1, qc2 = st.columns(2)
+                with qc1:
+                    if st.button("📤 Try Upload & Deduplication", use_container_width=True):
+                        navigate_to("Upload & Backup")
+                with qc2:
+                    if st.button("🛡️ Ransomware Threat Shield", use_container_width=True):
+                        navigate_to("Security Center")
+                qc3, qc4 = st.columns(2)
+                with qc3:
+                    if st.button("🤖 AI Disaster Recovery Copilot", use_container_width=True):
+                        navigate_to("AI Assistant")
+                with qc4:
+                    if st.button("📈 Predictive Storage Analytics", use_container_width=True):
+                        navigate_to("Analytics")
         else:
             c_btn1, c_btn2 = st.columns(2)
             with c_btn1:

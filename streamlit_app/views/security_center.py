@@ -78,6 +78,48 @@ def render_security_center(client: CloudVaultClient):
                 except Exception as e:
                     st.error(f"Simulation failed: {str(e)}")
 
+        st.markdown("<hr style='border-color: #1e293b; margin: 20px 0;'>", unsafe_allow_html=True)
+        st.subheader("🔬 Interactive Shannon Entropy Analyzer")
+        st.markdown("<p style='color: #94a3b8;'>Type, paste, or select sample text to calculate Shannon Entropy H in real-time. Values &ge; 7.50 indicate high randomness (strong encryption or compression).</p>", unsafe_allow_html=True)
+
+        sample_entropy_choice = st.selectbox(
+            "Quick Sample:",
+            ["Custom Input", "Plaintext English (Expected H ~4.1)", "Structured JSON (Expected H ~4.7)", "Simulated Ransomware Ciphertext (Expected H ~7.92)"]
+        )
+        if sample_entropy_choice == "Plaintext English (Expected H ~4.1)":
+            default_text = "CloudVault 2.0 provides continuous data protection, disaster recovery, and ransomware shielding for cloud infrastructure."
+        elif sample_entropy_choice == "Structured JSON (Expected H ~4.7)":
+            default_text = '{"vault": "production", "snapshots": 14, "encryption": "AES-256-GCM", "rto_target_seconds": 300, "status": "optimal"}'
+        elif sample_entropy_choice == "Simulated Ransomware Ciphertext (Expected H ~7.92)":
+            import os
+            default_text = os.urandom(128).hex()
+        else:
+            default_text = ""
+
+        calc_input = st.text_area("Input Text or Data:", value=default_text, height=80)
+        if calc_input:
+            from streamlit_app.demo_service import calculate_shannon_entropy
+            h_val = calculate_shannon_entropy(calc_input.encode("utf-8"))
+            is_suspicious = h_val >= 7.50
+            h_col1, h_col2 = st.columns([1, 2])
+            with h_col1:
+                st.metric("Calculated Shannon Entropy", f"{h_val:.2f} / 8.00 bits/byte")
+            with h_col2:
+                if is_suspicious:
+                    st.markdown("""
+                    <div style="padding-top: 10px;">
+                        <span class="badge badge-danger">🚨 HIGH RANDOMNESS / POTENTIAL CIPHERTEXT</span>
+                        <div style="font-size: 0.8rem; color: #f87171; margin-top: 4px;">Exceeds ransomware anomaly threshold (7.50). Triggers automated snapshot quarantine.</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style="padding-top: 10px;">
+                        <span class="badge badge-success">✅ NORMAL TEXT / LOW ENTROPY</span>
+                        <div style="font-size: 0.8rem; color: #4ade80; margin-top: 4px;">Below anomaly threshold (7.50). Classified as clean plaintext or structured code.</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
     # -------------------------------------------------------------
     # TAB 2: Tamper-Evident Audit Trail
     # -------------------------------------------------------------

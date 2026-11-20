@@ -1,6 +1,21 @@
 import streamlit as st
 from typing import Optional, Dict, Any
 
+def init_demo_user():
+    """Ensure an active demonstration user profile is loaded for public visitors in demo mode."""
+    from streamlit_app.demo_service import is_demo_mode
+    if is_demo_mode():
+        if not st.session_state.get("user") or not st.session_state.get("access_token"):
+            st.session_state["user"] = {
+                "id": "demo-evaluator-001",
+                "full_name": "Demo Evaluator",
+                "email": "demo-evaluator@cloudvault.internal",
+                "role": "evaluator",
+                "is_demo_mode": True
+            }
+            st.session_state["access_token"] = "demo-session-token-2026"
+
+
 def init_session():
     """Ensure all required session state variables exist with safe defaults."""
     if "access_token" not in st.session_state:
@@ -21,6 +36,9 @@ def init_session():
         ]
     if "pending_action_card" not in st.session_state:
         st.session_state["pending_action_card"] = None
+
+    # Load demo guest credentials if operating in demo mode
+    init_demo_user()
 
 
 def get_token() -> Optional[str]:

@@ -47,6 +47,9 @@ def render_settings(client: CloudVaultClient):
         | **Microsoft Azure Blob** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
         """)
 
+        if getattr(client, "demo_mode", False):
+            st.info("ℹ️ Architectural Demonstration: The above matrix illustrates CloudVault's multi-cloud failover capabilities across Google Cloud Storage, AWS S3, Azure Blob, and Local Mock Storage. In this zero-cost demonstration mode, no active cloud billing or external credentials are used.")
+
     # -------------------------------------------------------------
     # TAB 2: User Profile
     # -------------------------------------------------------------

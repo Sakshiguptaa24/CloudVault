@@ -35,6 +35,7 @@ def main():
 
     # Backend API client
     client = CloudVaultClient()
+    is_demo = getattr(client, "demo_mode", False)
 
     # Sidebar Navigation
     with st.sidebar:
@@ -49,7 +50,15 @@ def main():
         """, unsafe_allow_html=True)
 
         user = get_user()
-        if is_authenticated() and user:
+        if is_demo:
+            st.markdown("""
+            <div style="background: rgba(14, 165, 233, 0.12); border: 1px solid #0284c7; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px;">
+                <div style="font-size: 0.72rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.05em;">⚡ PUBLIC DEMO MODE</div>
+                <div style="font-weight: 600; color: #f8fafc; font-size: 0.95rem;">Demo Evaluator</div>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Zero Cost • Sample Data</div>
+            </div>
+            """, unsafe_allow_html=True)
+        elif is_authenticated() and user:
             st.markdown(f"""
             <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px;">
                 <div style="font-size: 0.8rem; color: #94a3b8;">AUTHENTICATED AS</div>
@@ -58,6 +67,7 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
+        if is_authenticated() or is_demo:
             nav_options = [
                 ("🏠 Dashboard", "Dashboard"),
                 ("📤 Upload & Backup", "Upload & Backup"),
@@ -88,7 +98,10 @@ def main():
         st.markdown("<hr style='border-color: #1e293b; margin: 20px 0;'>", unsafe_allow_html=True)
 
         # Status & Logout
-        if is_authenticated():
+        if is_demo:
+            if st.button("🔄 Reset Demo State", use_container_width=True):
+                logout()
+        elif is_authenticated():
             if st.button("🚪 Sign Out", use_container_width=True):
                 logout()
         else:
@@ -98,6 +111,20 @@ def main():
                 PostgreSQL & SQLite Engine
             </div>
             """, unsafe_allow_html=True)
+
+    # Global Demo Banner
+    if is_demo:
+        st.markdown("""
+        <div style="background: rgba(14, 165, 233, 0.10); border: 1px solid #0284c7; border-radius: 8px; padding: 12px 18px; margin-bottom: 22px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <strong style="color: #38bdf8; font-size: 0.95rem;">⚡ PUBLIC DEMO MODE — SAMPLE DATA ONLY</strong>
+                <span class="badge badge-info" style="font-size: 0.75rem;">$0 Cloud Cost • Self-Contained</span>
+            </div>
+            <div style="font-size: 0.82rem; color: #94a3b8; margin-top: 4px; line-height: 1.4;">
+                This is an interactive demonstration of CloudVault 2.0. Uploaded demonstration files and generated data are temporary. Do not upload confidential or important personal files.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # Route Page
     page = st.session_state.get("current_page", "Landing")

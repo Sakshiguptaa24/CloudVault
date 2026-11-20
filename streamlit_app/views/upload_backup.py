@@ -48,11 +48,34 @@ def render_upload_backup(client: CloudVaultClient):
 
     st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
+    is_demo = getattr(client, "demo_mode", False)
+    if is_demo:
+        st.markdown("##### 🧪 Or Pick a Sample Demonstration File (1-Click Test):")
+        sb1, sb2, sb3 = st.columns(3)
+        with sb1:
+            if st.button("📄 Financial Audit (PDF)", use_container_width=True):
+                st.session_state["demo_sample_file"] = {
+                    "name": "2026_q3_financial_audit.pdf",
+                    "bytes": b"%PDF-1.7 CloudVault Sample Financial Audit Report 2026 - Reconciled."
+                }
+        with sb2:
+            if st.button("📊 Customer Records (CSV)", use_container_width=True):
+                st.session_state["demo_sample_file"] = {
+                    "name": "enterprise_clients_export.csv",
+                    "bytes": b"client_id,company,tier\n1,Acme Corp,Enterprise\n2,Global Logistics,Tier 1"
+                }
+        with sb3:
+            if st.button("⚙️ Infrastructure (YAML)", use_container_width=True):
+                st.session_state["demo_sample_file"] = {
+                    "name": "k8s_production_cluster.yaml",
+                    "bytes": b"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: cloudvault-dr-worker"
+                }
+
     # File Upload Widget
     uploaded_file = st.file_uploader(
         "Choose file to backup and protect:",
         type=None,  # Accept any file type
-        help="All file formats supported. Maximum file size: 100 MB."
+        help="All file formats supported. Demo upload limit: 5 MB (100 MB in production)."
     )
 
     custom_rel_path = st.text_input(
@@ -61,16 +84,36 @@ def render_upload_backup(client: CloudVaultClient):
         help="Leave empty to use the original filename in root."
     )
 
+    # Resolve target file (either user upload or selected demo sample)
+    staged_name = None
+    staged_bytes = None
     if uploaded_file is not None:
-        file_bytes = uploaded_file.getvalue()
-        file_size = len(file_bytes)
+        staged_name = uploaded_file.name
+        staged_bytes = uploaded_file.getvalue()
+    elif is_demo and "demo_sample_file" in st.session_state and st.session_state["demo_sample_file"]:
+        staged_name = st.session_state["demo_sample_file"]["name"]
+        staged_bytes = st.session_state["demo_sample_file"]["bytes"]
+
+    if staged_name and staged_bytes:
+        file_size = len(staged_bytes)
 
         st.markdown(f"""
         <div style="background: #1e293b; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">
-            <span style="color: #94a3b8;">File Ready:</span> <strong style="color: #f8fafc;">{uploaded_file.name}</strong> 
+            <span style="color: #94a3b8;">File Ready:</span> <strong style="color: #f8fafc;">{staged_name}</strong> 
             <span style="color: #38bdf8; margin-left: 10px;">({format_bytes(file_size)})</span>
+            {'<span class="badge badge-info" style="margin-left: 10px;">Demo Sample</span>' if uploaded_file is None else ''}
         </div>
         """, unsafe_allow_html=True)
+
+        # Validation guards for demo safety
+        if is_demo and file_size > 5 * 1024 * 1024:
+            st.error("⚠️ Demonstration file size exceeds the 5 MB limit. Please select a smaller demonstration file.")
+            return
+
+        disallowed_demo_exts = [".exe", ".dll", ".bat", ".cmd", ".sh", ".vbs", ".ps1", ".msi", ".jar", ".scr", ".bin", ".com"]
+        if is_demo and any(staged_name.lower().endswith(ext) for ext in disallowed_demo_exts):
+            st.error("⚠️ Executable and script file extensions (.exe, .bat, etc.) are prohibited in public demonstration mode for system security.")
+            return
 
         if st.button("🚀 Upload & Encrypt Backup", type="primary", use_container_width=True):
             progress_bar = st.progress(0)
@@ -86,8 +129,8 @@ def render_upload_backup(client: CloudVaultClient):
                 res = client.upload_file_direct(
                     token=token,
                     plan_id=selected_plan_id,
-                    filename=uploaded_file.name,
-                    file_bytes=file_bytes,
+                    filename=staged_name,
+                    file_bytes=staged_bytes,
                     relative_path=custom_rel_path.strip() if custom_rel_path.strip() else None
                 )
 

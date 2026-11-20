@@ -74,14 +74,56 @@ def resolve_backend_url(base_url: Optional[str] = None, environment: Optional[st
 
 class CloudVaultClient:
     """
-    Robust HTTP client for the CloudVault FastAPI backend.
-    Accepts Bearer JWT authentication and connects seamlessly across local development,
-    private LAN, and cloud deployments (Streamlit Cloud -> Render / Railway / Cloud Run).
+    Robust client for CloudVault.
+    In standard mode: connects via HTTP/HTTPS to the FastAPI backend.
+    In demo mode (CLOUDVAULT_DEMO_MODE=true or standalone Streamlit Cloud deployment):
+    delegates to DemoClient, providing zero-cost self-contained demonstration.
     """
 
-    def __init__(self, base_url: Optional[str] = None, environment: Optional[str] = None):
-        self.base_url = resolve_backend_url(base_url, environment)
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        environment: Optional[str] = None,
+        demo_mode: Optional[bool] = None
+    ):
+        if demo_mode is True:
+            self.demo_mode = True
+        elif demo_mode is False:
+            self.demo_mode = False
+        elif base_url:
+            self.demo_mode = False
+        else:
+            from streamlit_app.demo_service import is_demo_mode
+            self.demo_mode = is_demo_mode()
+
+        if self.demo_mode:
+            from streamlit_app.demo_service import DemoClient
+            self._demo_backend = DemoClient(base_url, environment)
+            self.base_url = "demo://cloudvault.internal"
+        else:
+            self._demo_backend = None
+            self.base_url = resolve_backend_url(base_url, environment)
+
         self._health_cache = {"result": None, "timestamp": 0.0}
+
+    def __getattribute__(self, name: str) -> Any:
+        try:
+            demo_mode = object.__getattribute__(self, "demo_mode")
+        except AttributeError:
+            demo_mode = False
+
+        if demo_mode and name not in (
+            "demo_mode", "_demo_backend", "base_url", "_headers",
+            "_handle_response", "_health_cache", "__class__", "__dict__"
+        ):
+            try:
+                demo_backend = object.__getattribute__(self, "_demo_backend")
+                if demo_backend is not None and hasattr(demo_backend, name):
+                    return getattr(demo_backend, name)
+            except AttributeError:
+                pass
+
+        return object.__getattribute__(self, name)
 
     def _headers(self, token: Optional[str] = None) -> Dict[str, str]:
         headers = {"Accept": "application/json"}
