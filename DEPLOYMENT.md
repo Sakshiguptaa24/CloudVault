@@ -198,7 +198,82 @@ CloudVault is compliant with the W3C Web App Manifest and Service Worker specifi
 
 ---
 
-## 8. Production Security Verification
+## 9. Streamlit Community Cloud Deployment (Zero-Cost Public Interface)
+
+CloudVault 2.0 features a dedicated multi-user **Streamlit frontend** deployable with 1 click to [Streamlit Community Cloud](https://share.streamlit.io).
+
+### Architecture
+- **Frontend**: Streamlit Community Cloud (`https://<your-subdomain>.streamlit.app`)
+- **Backend API**: FastAPI running on Render, Railway, Google Cloud Run, or VPS (`https://<your-backend>.onrender.com`)
+- **Database**: Managed PostgreSQL on Supabase or Neon (`DATABASE_URL=postgresql://...`)
+- **Storage**: Multi-Cloud (Mock Storage for zero-cost demo, or GCS / S3 / Azure)
+
+### Step-by-Step Deployment:
+1. **Push your repository to GitHub**:
+   ```bash
+   git add .
+   git commit -m "feat(streamlit): deployment ready"
+   git push origin master
+   ```
+
+2. **Deploy the FastAPI Backend**:
+   - Deploy backend to Render, Railway, or Google Cloud Run.
+   - Set environment variables on the backend:
+     ```env
+     DATABASE_URL=postgresql://user:pass@host:5432/cloudvault
+     STORAGE_PROVIDER=mock
+     SECRET_KEY=generate-a-strong-random-secret
+     ALLOWED_ORIGINS=*
+     ```
+   - Note the deployed HTTPS URL (e.g. `https://cloudvault-api.onrender.com`).
+
+3. **Deploy the Streamlit UI to Streamlit Community Cloud**:
+   - Sign in to [share.streamlit.io](https://share.streamlit.io/) with your GitHub account.
+   - Click **Create App** > **Deploy a public app from GitHub**.
+   - Select your repository: `username/CloudVault` (or your repo name).
+   - Branch: `master`.
+   - Main file path: `streamlit_app.py` (or `app.py`).
+   - Click **Advanced settings...** and add your backend connection secret:
+     ```toml
+     [general]
+     BACKEND_API_URL = "https://cloudvault-api.onrender.com"
+     ```
+   - Click **Deploy!**
+   - Streamlit will install dependencies from `requirements.txt` and launch the app at `https://<your-app>.streamlit.app`.
+
+### Local Development / Offline Testing:
+To run both backend and Streamlit locally:
+```bash
+# Terminal 1: Run FastAPI backend
+python cli.py serve --port 8000
+
+# Terminal 2: Run Streamlit frontend
+python cli.py ui --port 8501
+# Or directly:
+streamlit run streamlit_app.py
+```
+Open `http://localhost:8501` in your browser.
+
+---
+
+## 10. Multi-Cloud Storage Deployment (S3, GCS, Azure, and Mock)
+
+CloudVault supports dynamic routing and automatic failover across 4 storage backends:
+
+```env
+# Multi-Cloud Routing Configuration
+STORAGE_PROVIDER=mock          # Options: 'mock', 'gcs', 's3', 'azure'
+STORAGE_SECONDARY_PROVIDER=s3  # Automatic failover destination
+STORAGE_FAILOVER_ENABLED=True  # Enables transparent multi-cloud failover
+STORAGE_MAX_RETRIES=3
+STORAGE_TIMEOUT_SECONDS=10
+```
+
+1. **Local Air-Gapped Mock (Default)**: Free, zero external credentials required, stores objects in `data/mock_storage/objects`.
+2. **Google Cloud Storage (GCS)**: Configure `GCS_BUCKET_NAME`, `GCS_PROJECT_ID`, and service account JSON credentials.
+3. **Amazon Web Services (S3)**: Configure `AWS_S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`.
+4. **Microsoft Azure Blob Storage**: Configure `AZURE_CONTAINER` and `AZURE_STORAGE_CONNECTION_STRING`.
+
 
 - **Security Headers:** Automatic `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, and `Referrer-Policy: strict-origin-when-cross-origin`.
 - **Upload Restrictions:** 100 MB maximum file size enforcement with HTTP 413 error reporting.

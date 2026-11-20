@@ -177,14 +177,32 @@ def run_cli_health():
     finally:
         db.close()
 
+def run_streamlit(port: int = 8501):
+    """Launch the Streamlit multi-user application."""
+    import subprocess
+    print(f"\n=======================================================")
+    print(f"  ☁️  CloudVault 2.0 – Streamlit Multi-User Web Client")
+    print(f"=======================================================")
+    print(f"  🌐 Streamlit Local:    http://localhost:{port}")
+    print(f"  🔒 Session Isolation: Active (Strict per-session JWT)")
+    print(f"=======================================================\n")
+    cmd = [sys.executable, "-m", "streamlit", "run", "streamlit_app.py", "--server.port", str(port)]
+    subprocess.run(cmd)
+
 def main():
     parser = argparse.ArgumentParser(description="CloudVault 2.0 CLI Controller")
     subparsers = parser.add_subparsers(dest="command")
 
     # Server
-    serve_parser = subparsers.add_parser("serve", help="Run the Web Dashboard and API server")
+    serve_parser = subparsers.add_parser("serve", help="Run the FastAPI API server")
     serve_parser.add_argument("--port", type=int, default=8000, help="Port to run server on")
     serve_parser.add_argument("--host", type=str, default="0.0.0.0", help="Host interface")
+
+    # Streamlit UI
+    ui_parser = subparsers.add_parser("ui", help="Run Streamlit Multi-User Web UI")
+    ui_parser.add_argument("--port", type=int, default=8501, help="Port for Streamlit")
+    st_parser = subparsers.add_parser("streamlit", help="Run Streamlit Multi-User Web UI")
+    st_parser.add_argument("--port", type=int, default=8501, help="Port for Streamlit")
 
     # Tests
     subparsers.add_parser("test", help="Run all unit and integration tests")
@@ -210,6 +228,9 @@ def main():
         port = getattr(args, "port", 8000)
         host = getattr(args, "host", "0.0.0.0")
         run_server(host=host, port=port)
+    elif args.command in ("ui", "streamlit"):
+        port = getattr(args, "port", 8501)
+        run_streamlit(port=port)
     elif args.command == "test":
         run_tests()
     elif args.command == "backup":

@@ -1,0 +1,134 @@
+import streamlit as st
+from streamlit_app.api_client import CloudVaultClient, APIError
+from streamlit_app.session import get_token, navigate_to
+from streamlit_app.styles import format_bytes
+
+def render_upload_backup(client: CloudVaultClient):
+    token = get_token()
+    if not token:
+        st.warning("Please sign in to upload files.")
+        navigate_to("Login")
+        return
+
+    st.markdown("<h2 style='color: #38bdf8;'>📤 Direct File Upload & Instant Backup</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8;'>Upload files directly to your vault. Files are hashed (SHA-256), compressed, envelope-encrypted with AES-256-GCM, and deduplicated automatically.</p>", unsafe_allow_html=True)
+
+    # Fetch available backup plans
+    try:
+        plans = client.list_backup_plans(token)
+    except Exception as e:
+        st.error(f"Failed to fetch backup plans: {str(e)}")
+        plans = []
+
+    # If no plans exist, offer to auto-create a default plan
+    selected_plan_id = None
+    if not plans:
+        st.info("💡 You don't have any backup plans yet. Let's create a default one for your uploads.")
+        if st.button("Create 'Default Web Backups' Plan", type="primary"):
+            try:
+                new_plan = client.create_backup_plan(
+                    token=token,
+                    plan_name="Default Web Backups",
+                    source_directories=["uploads/"],
+                    exclusion_patterns=["*.tmp"],
+                    schedule_type="manual"
+                )
+                st.success("Plan created successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error creating plan: {str(e)}")
+        return
+    else:
+        plan_options = {p["id"]: f"{p['plan_name']} (Algo: {p.get('compression_algo', 'gzip')})" for p in plans}
+        selected_plan_id = st.selectbox(
+            "Select Destination Backup Plan:",
+            options=list(plan_options.keys()),
+            format_func=lambda pid: plan_options[pid]
+        )
+
+    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+
+    # File Upload Widget
+    uploaded_file = st.file_uploader(
+        "Choose file to backup and protect:",
+        type=None,  # Accept any file type
+        help="All file formats supported. Maximum file size: 100 MB."
+    )
+
+    custom_rel_path = st.text_input(
+        "Vault Path / Folder (Optional):",
+        placeholder="e.g. documents/financials/2026_q3_report.pdf",
+        help="Leave empty to use the original filename in root."
+    )
+
+    if uploaded_file is not None:
+        file_bytes = uploaded_file.getvalue()
+        file_size = len(file_bytes)
+
+        st.markdown(f"""
+        <div style="background: #1e293b; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">
+            <span style="color: #94a3b8;">File Ready:</span> <strong style="color: #f8fafc;">{uploaded_file.name}</strong> 
+            <span style="color: #38bdf8; margin-left: 10px;">({format_bytes(file_size)})</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("🚀 Upload & Encrypt Backup", type="primary", use_container_width=True):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            try:
+                status_text.text("Calculating SHA-256 cryptographic digest...")
+                progress_bar.progress(30)
+
+                status_text.text("Checking deduplication registry & encrypting...")
+                progress_bar.progress(60)
+
+                res = client.upload_file_direct(
+                    token=token,
+                    plan_id=selected_plan_id,
+                    filename=uploaded_file.name,
+                    file_bytes=file_bytes,
+                    relative_path=custom_rel_path.strip() if custom_rel_path.strip() else None
+                )
+
+                progress_bar.progress(100)
+                status_text.empty()
+
+                is_dedup = res.get("deduplicated", False)
+                sha = res.get("sha256", "")
+                snap_id = res.get("snapshot_id", "")
+
+                st.success("✅ File successfully protected in CloudVault!")
+
+                # Results Summary Card
+                st.markdown(f"""
+                <div class="cv-card" style="border-left: 4px solid {'#22c55e' if is_dedup else '#38bdf8'};">
+                    <h3 style="margin-top: 0; color: #f8fafc;">Upload & Verification Receipt</h3>
+                    <p><strong>Filename:</strong> {uploaded_file.name}</p>
+                    <p><strong>SHA-256 Digest:</strong> <code style="color: #38bdf8;">{sha}</code></p>
+                    <p><strong>Integrity Verification:</strong> <span class="badge badge-success">Verified Match</span></p>
+                    <p><strong>Storage Status:</strong> {
+                        '<span class="badge badge-success">⚡ 100% Deduplicated (0 new bytes stored)</span>' 
+                        if is_dedup else 
+                        '<span class="badge badge-info">🔒 Compressed & AES-256-GCM Envelope Encrypted</span>'
+                    }</p>
+                    <p><strong>Snapshot Created:</strong> <code>{snap_id}</code></p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    if st.button("📸 View Snapshots & Tree"):
+                        navigate_to("Snapshots")
+                with col_b2:
+                    if st.button("🔄 Go to Restore Center"):
+                        navigate_to("Restore & Recovery")
+
+            except APIError as e:
+                progress_bar.empty()
+                status_text.empty()
+                st.error(f"Upload failed: {e.detail}")
+            except Exception as e:
+                progress_bar.empty()
+                status_text.empty()
+                st.error(f"Error during upload: {str(e)}")

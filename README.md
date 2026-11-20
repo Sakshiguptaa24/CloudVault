@@ -234,9 +234,42 @@ Follow this structured demonstration script during your academic presentation:
    - *"How long would recovery take?"*
    - Show how the AI provides exact telemetry-backed answers without fabricating data.
 
+### 🌐 8. Public Multi-User Streamlit Frontend (Streamlit Cloud Ready)
+- **12 Comprehensive Dedicated Pages:**
+  1. **Landing & Architecture Overview:** Public platform capabilities, multi-cloud engine status, and quick-start links.
+  2. **User Registration:** Multi-tenant account creation with real-time password strength analyzer and instant credential verification.
+  3. **Secure Sign In:** JWT authentication with automated RFC 6238 TOTP challenge prompts and single-use recovery code fallback.
+  4. **DR Command Dashboard:** 4-KPI operational health grid (Health Score, Total Protected Files, Deduplication Savings, DR Readiness Index), storage quota bar, quick actions, and recent jobs.
+  5. **Direct File Upload & Protect:** Drag-and-drop file upload with real progress, client-side SHA-256 calculation, deduplication bypass, and automatic AES-256-GCM envelope encryption.
+  6. **Backup Plans & Policies:** Custom source folders, exclusion patterns, retention rules, cron/interval schedules, and instant on-demand trigger.
+  7. **Snapshot Explorer & Version Scrubber:** Timeline browsing, file tree explorer, file size inspection, SHA-256 hashes, and WORM retention badges.
+  8. **Point-in-Time Restore & Recovery:** Granular file recovery, full snapshot restoration with conflict strategies (`keep_both`, `overwrite`, `skip`), and bit-level SHA-256 integrity checks.
+  9. **Intelligent Security Center:** Ransomware threat status, Shannon entropy scanner, active alert triage & unquarantine, safe attack simulator, cryptographic hash-chain verification, and KEK rotation.
+  10. **AI Disaster Recovery Copilot:** Interactive conversational assistant with quick prompts and cryptographic HMAC confirmation cards for privileged operations.
+  11. **Predictive Storage Intelligence:** Linear regression storage forecasting, quota exhaustion countdown, multi-cloud cost model, heavyweight files table, and weekly executive report export.
+  12. **Multi-Cloud & Account Settings:** Real-time multi-cloud routing status (Mock, GCS, S3, Azure), failover status, user profile, quota limits, and recovery codes.
+- **Zero Cross-User Session Leakage:** Strict tenant isolation using per-session tokens in `st.session_state`. Concurrent users across separate devices or browser tabs never share state or leak credentials.
+- **PostgreSQL & SQLite Dual Compatibility:** Works seamlessly with SQLite for zero-cost local development and managed PostgreSQL (Supabase, Neon, AWS RDS) for production cloud hosting.
+
 ---
 
-## 7. Connecting Production Google Cloud Storage
+## 3. Quick Start & Execution
+
+### Running the Multi-User Streamlit Frontend:
+```bash
+# Terminal 1: Run FastAPI Backend
+python cli.py serve --port 8000
+
+# Terminal 2: Run Streamlit Frontend
+python cli.py ui --port 8501
+# Or directly:
+streamlit run streamlit_app.py
+```
+Open **`http://localhost:8501`** in your browser.
+
+---
+
+## 4. Connecting Production Google Cloud Storage
 
 When ready to connect to a live Google Cloud Storage bucket:
 

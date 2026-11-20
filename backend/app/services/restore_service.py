@@ -18,7 +18,7 @@ def resolve_conflict_path(dest_file: Path, strategy: str) -> Path:
 
     if strategy == "overwrite":
         return dest_file
-    elif strategy == "rename":
+    elif strategy in ("rename", "keep_both"):
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         stem = dest_file.stem
         suffix = dest_file.suffix
