@@ -39,6 +39,7 @@ class User(Base):
     ransomware_alerts = relationship("RansomwareAlert", back_populates="user", cascade="all, delete-orphan")
     dr_drills = relationship("DRDrill", back_populates="user", cascade="all, delete-orphan")
     recovery_codes = relationship("MFARecoveryCode", back_populates="user", cascade="all, delete-orphan")
+    recovery_operations = relationship("RecoveryOperation", back_populates="user", cascade="all, delete-orphan")
 
 
 class Device(Base):
@@ -136,6 +137,7 @@ class Snapshot(Base):
     user = relationship("User", back_populates="snapshots")
     files = relationship("SnapshotFile", back_populates="snapshot", cascade="all, delete-orphan")
     dr_drills = relationship("DRDrill", back_populates="snapshot", cascade="all, delete-orphan")
+    recovery_operations = relationship("RecoveryOperation", back_populates="snapshot")
 
 
 class SnapshotFile(Base):
@@ -241,6 +243,8 @@ class DRDrill(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     snapshot_id = Column(String(36), ForeignKey("snapshots.id"), nullable=False, index=True)
+    drill_type = Column(String(50), default="FULL_SNAPSHOT", nullable=False) # FULL_SNAPSHOT, FOLDER, FILE, POINT_IN_TIME, RANSOMWARE_PRE_INCIDENT, CORRUPTED_OBJECT_TEST
+    drill_scope = Column(String(255), nullable=True) # file path or folder prefix
     files_tested = Column(Integer, nullable=False)
     bytes_tested = Column(BigInteger, nullable=False)
     duration_seconds = Column(Float, nullable=False)
@@ -249,10 +253,37 @@ class DRDrill(Base):
     estimated_rto_minutes = Column(Float, default=0.0, nullable=False)
     status = Column(String(20), nullable=False) # PASSED, FAILED
     error_details = Column(Text, nullable=True)
+    verification_report = Column(Text, nullable=True) # JSON details of per-file checks
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     user = relationship("User", back_populates="dr_drills")
     snapshot = relationship("Snapshot", back_populates="dr_drills")
+
+
+class RecoveryOperation(Base):
+    __tablename__ = "recovery_operations"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    snapshot_id = Column(String(36), ForeignKey("snapshots.id"), nullable=True, index=True)
+    operation_type = Column(String(50), nullable=False) # FILE_RESTORE, FOLDER_RESTORE, SNAPSHOT_RESTORE, POINT_IN_TIME, RANSOMWARE_RECOVERY, SANDBOX_PREVIEW
+    target_path = Column(String(1000), nullable=True)
+    destination_path = Column(String(1000), nullable=True)
+    conflict_strategy = Column(String(50), default="keep_both", nullable=False)
+    status = Column(String(20), default="SUCCESS", nullable=False) # SUCCESS, FAILED, CORRUPTED
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Float, default=0.0, nullable=False) # Measured RTO
+    rpo_hours = Column(Float, default=0.0, nullable=False) # Measured RPO
+    files_restored = Column(Integer, default=0, nullable=False)
+    bytes_restored = Column(BigInteger, default=0, nullable=False)
+    throughput_mbps = Column(Float, default=0.0, nullable=False)
+    verification_report = Column(Text, default="{}", nullable=False)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = relationship("User", back_populates="recovery_operations")
+    snapshot = relationship("Snapshot", back_populates="recovery_operations")
 
 
 class MFARecoveryCode(Base):

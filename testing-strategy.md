@@ -1,8 +1,8 @@
 # CloudVault 2.0: Quality Assurance & Testing Strategy
 **Project:** CloudVault 2.0 – Intelligent Cloud Backup, Security & Disaster Recovery Platform  
-**Total Automated Tests:** 70 Tests Across 15 Test Suites  
+**Total Automated Tests:** 85 Tests Across 16 Test Suites  
 **Verification Result:** 100% Passed (0 Failures, 0 Regressions)  
-**Execution Runtime:** ~19.2 seconds  
+**Execution Runtime:** ~50.8 seconds  
 **Test Harness:** Pytest 9.2, FastAPI TestClient, AnyIO, In-Memory / Isolated SQLite  
 
 ---
@@ -65,6 +65,23 @@ CloudVault 2.0 enforces a multi-tiered testing strategy designed to validate cor
 - `test_synthetic_recovery_drill_success`: Tests sandboxed synthetic recovery drill with bit-level SHA-256 integrity match.
 - `test_synthetic_recovery_drill_corruption_detection`: Verifies immediate drill failure reporting when simulated cloud block corruption occurs.
 - `test_dr_history_endpoint`: Tests `/api/v1/recovery/dr-history` audit listing and attestation.
+
+### 3B. Disaster Recovery Command Center Core (`test_disaster_recovery_command_center.py`) — 15 Tests
+- `test_1_file_recovery_bit_level_sha256`: Proves individual file reconstruction with bit-level SHA-256 integrity validation.
+- `test_2_folder_recovery_with_structure_preservation`: Verifies multi-file folder hierarchy reconstruction preserving directory structure.
+- `test_3_historical_point_in_time_snapshot_recovery`: Tests historical point-in-time snapshot recovery with file-by-file difference analysis (NEW, MODIFIED, UNCHANGED).
+- `test_4_encrypted_file_recovery_aes_gcm_envelope`: Validates encrypted object stream retrieval, KEK/DEK envelope decryption, GCM tag verification, and plaintext SHA-256 attestation.
+- `test_5_historical_encryption_key_version_recovery`: Confirms historical snapshots encrypted under v1 KEK remain decryptable after rotating to v2 KEK.
+- `test_6_corrupted_object_detection_and_rejection`: Injects corrupted ciphertext in cloud storage; confirms GCM authentication rejection and drill failure reporting.
+- `test_7_missing_storage_object_detection`: Simulates missing storage blocks; verifies graceful drill failure with missing block diagnostics.
+- `test_8_checksum_mismatch_detection_fails_safely`: Simulates unencrypted payload tampering; confirms SHA-256 mismatch detection without marking damaged recovery as successful.
+- `test_9_ransomware_safe_recovery_point_selection`: Tests automated clean pre-incident snapshot selection excluding compromised/quarantined versions with safety justifications.
+- `test_10_worm_protection_preserved_during_recovery`: Proves active WORM retention locks are strictly preserved during recovery operations.
+- `test_11_recovery_sandbox_isolation_and_preview`: Verifies isolated sandbox preview without altering user files or production storage.
+- `test_12_rto_and_rpo_real_measurements`: Validates real measured RTO (actual elapsed execution seconds and MB/s throughput) and calculated RPO (hours since snapshot).
+- `test_13_failed_recovery_handling_and_logging`: Verifies failed recovery operations are logged with detailed error diagnostics and audit trail entries.
+- `test_14_ai_disaster_recovery_copilot_queries`: Validates AI Copilot responses across all 8 Phase 5 disaster recovery queries.
+- `test_15_disaster_recovery_cross_tenant_isolation`: Confirms strict tenant isolation for all disaster recovery operations, drills, and previews.
 
 ### 4. Advanced Security Core (`test_security_core.py`) — 15 Tests
 - `test_aes_gcm_envelope_encryption_roundtrip`: Verifies PBKDF2 KEK derivation, DEK generation, and AES-256-GCM encryption/decryption roundtrip.

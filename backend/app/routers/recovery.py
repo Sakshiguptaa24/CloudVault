@@ -1,9 +1,11 @@
+import time
 from typing import List, Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from datetime import datetime
 from backend.app.database import get_db
-from backend.app.models import User, Snapshot, SnapshotFile, BackupPlan
+from backend.app.models import User, Snapshot, SnapshotFile, BackupPlan, RecoveryOperation
 from backend.app.schemas import (
     SnapshotResponse, SnapshotFileResponse, RestoreFileRequest,
     RestoreSnapshotRequest, RestoreResponse, DeletedFileItem
@@ -61,6 +63,7 @@ def restore_file(
     db: Session = Depends(get_db)
 ):
     storage = get_storage_provider()
+    start_time = time.time()
     try:
         result = restore_file_by_id(
             snapshot_file_id=request.snapshot_file_id,
@@ -70,6 +73,36 @@ def restore_file(
             storage=storage,
             user_id=current_user.id
         )
+        duration = max(0.001, round(time.time() - start_time, 3))
+        
+        # Calculate RPO for file's snapshot
+        snap_file = db.query(SnapshotFile).filter(SnapshotFile.id == request.snapshot_file_id).first()
+        rpo_h = 0.0
+        snap_id = None
+        if snap_file and snap_file.snapshot:
+            snap_id = snap_file.snapshot.id
+            rpo_h = round((datetime.utcnow() - snap_file.snapshot.created_at).total_seconds() / 3600.0, 2)
+
+        raw_mbps = (result["bytes_restored"] / (1024 * 1024)) / duration
+        throughput = round(raw_mbps, 2)
+
+        op = RecoveryOperation(
+            user_id=current_user.id,
+            snapshot_id=snap_id,
+            operation_type="FILE_RESTORE",
+            target_path=snap_file.relative_path if snap_file else None,
+            destination_path=result["path"],
+            conflict_strategy=request.conflict_strategy,
+            status="SUCCESS",
+            duration_seconds=duration,
+            rpo_hours=rpo_h,
+            files_restored=1 if result["status"] == "RESTORED" else 0,
+            bytes_restored=result["bytes_restored"],
+            throughput_mbps=throughput
+        )
+        db.add(op)
+        db.commit()
+
         return {
             "status": "SUCCESS",
             "message": f"Restored {result['file_name']} successfully with verified integrity.",
@@ -81,6 +114,18 @@ def restore_file(
     except PermissionError as pe:
         raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:
+        duration = max(0.001, round(time.time() - start_time, 3))
+        op = RecoveryOperation(
+            user_id=current_user.id,
+            operation_type="FILE_RESTORE",
+            destination_path=request.destination_directory,
+            conflict_strategy=request.conflict_strategy,
+            status="FAILED",
+            duration_seconds=duration,
+            error_message=str(e)
+        )
+        db.add(op)
+        db.commit()
         raise HTTPException(status_code=500, detail=f"File restore failed: {str(e)}")
 
 @router.post("/restore-snapshot", response_model=RestoreResponse)
@@ -90,6 +135,7 @@ def restore_entire_snapshot(
     db: Session = Depends(get_db)
 ):
     storage = get_storage_provider()
+    start_time = time.time()
     try:
         result = restore_snapshot(
             snapshot_id=request.snapshot_id,
@@ -99,6 +145,29 @@ def restore_entire_snapshot(
             storage=storage,
             user_id=current_user.id
         )
+        duration = max(0.001, round(time.time() - start_time, 3))
+
+        snap = db.query(Snapshot).filter(Snapshot.id == request.snapshot_id).first()
+        rpo_h = round((datetime.utcnow() - snap.created_at).total_seconds() / 3600.0, 2) if snap else 0.0
+        raw_mbps = (result["bytes_restored"] / (1024 * 1024)) / duration
+        throughput = round(raw_mbps, 2)
+
+        op = RecoveryOperation(
+            user_id=current_user.id,
+            snapshot_id=request.snapshot_id,
+            operation_type="SNAPSHOT_RESTORE",
+            destination_path=result["destination"],
+            conflict_strategy=request.conflict_strategy,
+            status="SUCCESS",
+            duration_seconds=duration,
+            rpo_hours=rpo_h,
+            files_restored=result["files_restored"],
+            bytes_restored=result["bytes_restored"],
+            throughput_mbps=throughput
+        )
+        db.add(op)
+        db.commit()
+
         return {
             "status": "SUCCESS",
             "message": f"Snapshot restored: {result['files_restored']} files recovered.",
@@ -110,6 +179,19 @@ def restore_entire_snapshot(
     except PermissionError as pe:
         raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:
+        duration = max(0.001, round(time.time() - start_time, 3))
+        op = RecoveryOperation(
+            user_id=current_user.id,
+            snapshot_id=request.snapshot_id,
+            operation_type="SNAPSHOT_RESTORE",
+            destination_path=request.destination_directory,
+            conflict_strategy=request.conflict_strategy,
+            status="FAILED",
+            duration_seconds=duration,
+            error_message=str(e)
+        )
+        db.add(op)
+        db.commit()
         raise HTTPException(status_code=500, detail=f"Snapshot restore failed: {str(e)}")
 
 @router.get("/deleted-files", response_model=List[DeletedFileItem])

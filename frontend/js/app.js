@@ -749,125 +749,792 @@ function setupAIAssistant() {
 // CLOUDVAULT 2.0 ADVANCED MODULE CONTROLLERS
 // ========================================================
 
-// 1. Disaster Recovery Center Controller
+// ========================================================
+// 1. Disaster Recovery Command Center Controller
+// ========================================================
+let currentDRTelemetry = null;
+let currentDRHistoryTab = "drills"; // "drills" or "ops"
+
 async function loadDisasterRecovery() {
     try {
-        const metrics = await api.getDRMetrics();
+        const telemetry = await api.getDRCommandCenter();
+        currentDRTelemetry = telemetry;
+
+        // 1. Mission Control Header & Readiness
+        const readinessBadge = document.getElementById("dr-readiness-banner-badge");
+        if (readinessBadge) {
+            readinessBadge.textContent = `${telemetry.readiness_level} (${telemetry.readiness_score}/100)`;
+            readinessBadge.className = `dr-metric-badge badge-${telemetry.readiness_level === 'OPTIMAL' ? 'optimal' : (telemetry.readiness_level === 'ACCEPTABLE' ? 'warning' : 'critical')}`;
+        }
+
+        // Readiness factors
+        const sb = telemetry.score_breakdown || {};
+        const fRpo = document.getElementById("factor-rpo");
+        const fDrills = document.getElementById("factor-drills");
+        const fShield = document.getElementById("factor-shield");
+        const fWorm = document.getElementById("factor-worm");
+        const fInteg = document.getElementById("factor-integrity");
+        if (fRpo) fRpo.textContent = `RPO: ${sb.rpo_recency !== undefined ? sb.rpo_recency + '/30' : '--'}`;
+        if (fDrills) fDrills.textContent = `Drills: ${sb.verification_drills !== undefined ? sb.verification_drills + '/25' : '--'}`;
+        if (fShield) fShield.textContent = `Shield: ${sb.cyber_shield !== undefined ? sb.cyber_shield + '/25' : '--'}`;
+        if (fWorm) fWorm.textContent = `WORM: ${sb.worm_retention !== undefined ? sb.worm_retention + '/10' : '--'}`;
+        if (fInteg) fInteg.textContent = `Integrity: ${sb.storage_integrity !== undefined ? sb.storage_integrity + '/10' : '--'}`;
+
+        // 2. KPI 1: Calculated RPO
         const rpoVal = document.getElementById("dr-rpo-value");
         const rpoBadge = document.getElementById("dr-rpo-badge");
+        if (rpoVal && telemetry.rpo) {
+            if (telemetry.rpo.hours !== null) {
+                rpoVal.textContent = `${telemetry.rpo.hours}h`;
+                rpoBadge.textContent = telemetry.rpo.status;
+                rpoBadge.className = `dr-metric-badge badge-${telemetry.rpo.status === 'HEALTHY' ? 'optimal' : (telemetry.rpo.status === 'WARNING' ? 'warning' : 'critical')}`;
+            } else {
+                rpoVal.textContent = "No Backups";
+                rpoBadge.textContent = "PENDING";
+                rpoBadge.className = "dr-metric-badge badge-warning";
+            }
+        }
+
+        // 3. KPI 2: Measured RTO
         const rtoVal = document.getElementById("dr-rto-value");
         const rtoSpeed = document.getElementById("dr-rto-speed");
-        const readinessVal = document.getElementById("dr-readiness-value");
-        const readinessBadge = document.getElementById("dr-readiness-badge");
-        const drillsCount = document.getElementById("dr-drills-count");
-
-        if (metrics.rpo.hours !== null) {
-            rpoVal.textContent = `${metrics.rpo.hours}h`;
-            rpoBadge.textContent = metrics.rpo.status;
-            rpoBadge.className = `dr-metric-badge badge-${metrics.rpo.status === 'HEALTHY' ? 'optimal' : 'warning'}`;
-        } else {
-            rpoVal.textContent = "No Backups";
-            rpoBadge.textContent = "PENDING";
-            rpoBadge.className = "dr-metric-badge badge-warning";
+        if (rtoVal && telemetry.rto) {
+            rtoVal.textContent = `${telemetry.rto.predicted_full_rto_minutes} min`;
+            rtoSpeed.textContent = `Speed: ${telemetry.rto.measured_speed_mbps} MB/s`;
         }
 
-        rtoVal.textContent = `${metrics.rto.estimated_minutes} min`;
-        rtoSpeed.textContent = `Speed: ${metrics.rto.measured_speed_mbps} MB/s`;
-        readinessVal.textContent = `${metrics.readiness_score} / 100`;
-        readinessBadge.textContent = metrics.readiness_level;
-        readinessBadge.className = `dr-metric-badge badge-${metrics.readiness_level === 'OPTIMAL' ? 'optimal' : (metrics.readiness_level === 'ACCEPTABLE' ? 'warning' : 'critical')}`;
-        drillsCount.textContent = `${metrics.total_drills_executed} Drills`;
+        // 4. KPI 3: Available Recovery Points
+        const ptsTotal = document.getElementById("dr-points-total");
+        const ptsVer = document.getElementById("dr-points-verified");
+        const ptsWorm = document.getElementById("dr-points-worm");
+        if (ptsTotal && telemetry.recovery_points) {
+            ptsTotal.textContent = telemetry.recovery_points.total;
+            ptsVer.textContent = `${telemetry.recovery_points.verified} Verified`;
+            ptsWorm.textContent = `${telemetry.recovery_points.worm_locked} WORM`;
+        }
 
-        // Populate Snapshot Selector
+        // 5. KPI 4: Active Recovery Incidents
+        const incCount = document.getElementById("dr-incidents-count");
+        const incBadge = document.getElementById("dr-incidents-badge");
+        const failedOps = document.getElementById("dr-failed-ops");
+        if (incCount && telemetry.active_incidents) {
+            const count = telemetry.active_incidents.count || 0;
+            incCount.textContent = count;
+            if (count === 0) {
+                incBadge.textContent = "ALL CLEAR";
+                incBadge.className = "dr-metric-badge badge-optimal";
+            } else {
+                incBadge.textContent = "THREAT DETECTED";
+                incBadge.className = "dr-metric-badge badge-critical";
+            }
+            if (failedOps) failedOps.textContent = `${telemetry.failed_operations_count} Failed Ops`;
+        }
+
+        // 6. KPI 5: Last Verified Point
+        const lastVerTitle = document.getElementById("dr-last-verified-title");
+        const lastVerDate = document.getElementById("dr-last-verified-date");
+        const lastVerStatus = document.getElementById("dr-last-verified-status");
+        if (lastVerTitle && telemetry.recovery_points && telemetry.recovery_points.latest_snapshot) {
+            const ls = telemetry.recovery_points.latest_snapshot;
+            lastVerTitle.textContent = `#${ls.snapshot_number} ${ls.name}`;
+            lastVerDate.textContent = formatDate(ls.created_at);
+            lastVerStatus.textContent = ls.verification_status;
+            lastVerStatus.className = `dr-metric-badge badge-${ls.verification_status === 'VERIFIED' ? 'optimal' : 'warning'}`;
+        } else if (lastVerTitle) {
+            lastVerTitle.textContent = "None";
+            lastVerDate.textContent = "-";
+        }
+
+        // 7. KPI 6: Data Protection Scope
+        const protBytes = document.getElementById("dr-protected-bytes");
+        const unprotFiles = document.getElementById("dr-unprotected-files");
+        const protBadge = document.getElementById("dr-protection-badge");
+        if (protBytes && telemetry.data_protection) {
+            protBytes.textContent = formatBytes(telemetry.data_protection.total_stored_bytes);
+            unprotFiles.textContent = `${telemetry.data_protection.unprotected_files_count} unsynced`;
+            protBadge.textContent = telemetry.data_protection.status;
+            protBadge.className = `dr-metric-badge badge-${telemetry.data_protection.status === 'PROTECTED' ? 'optimal' : 'warning'}`;
+        }
+
+        // 8. Guided Ransomware Incident Recovery Container
+        renderRansomwareContainer();
+
+        // 9. Populate Snapshots in Advanced Drill Dropdown
         const snapSelect = document.getElementById("dr-snapshot-select");
-        const snapshotsData = await api.getSnapshots();
-        const snapshots = snapshotsData.snapshots || [];
-        snapSelect.innerHTML = "";
-
-        if (snapshots.length === 0) {
-            snapSelect.innerHTML = "<option value=''>No snapshots available</option>";
-        } else {
-            snapshots.forEach((s, idx) => {
-                const opt = document.createElement("option");
-                opt.value = s.id;
-                opt.textContent = `${s.name} (${formatDate(s.created_at)}) - ${s.total_files} files`;
-                if (idx === 0) opt.selected = true;
-                snapSelect.appendChild(opt);
-            });
+        if (snapSelect) {
+            const snapshotsData = await api.getSnapshots();
+            const snapshots = Array.isArray(snapshotsData) ? snapshotsData : (snapshotsData.snapshots || []);
+            snapSelect.innerHTML = "";
+            if (snapshots.length === 0) {
+                snapSelect.innerHTML = "<option value=''>No snapshots available</option>";
+            } else {
+                snapshots.forEach((s, idx) => {
+                    const opt = document.createElement("option");
+                    opt.value = s.id;
+                    const vIcon = s.verification_status === "VERIFIED" ? "✅" : (s.verification_status === "FAILED" ? "❌" : "⏳");
+                    const lockIcon = s.is_locked ? "🔒" : "";
+                    opt.textContent = `${vIcon} #${s.snapshot_number} ${s.name} (${formatDate(s.created_at)}) ${lockIcon}`;
+                    if (idx === 0) opt.selected = true;
+                    snapSelect.appendChild(opt);
+                });
+            }
         }
 
-        // Load Past Drills
+        // 10. Load Recovery History
+        await loadDRHistoryTable();
+
+    } catch (err) {
+        console.error("Disaster Recovery Command Center load error:", err);
+        showToast("Could not load DR Command Center: " + err.message, "error");
+    }
+}
+
+async function renderRansomwareContainer() {
+    const container = document.getElementById("dr-ransomware-alert-container");
+    if (!container) return;
+
+    try {
+        const plan = await api.getRansomwareRecoveryPlan();
+        if (plan.has_active_threat) {
+            const rec = plan.recommended_snapshot;
+            let recHtml = "";
+            if (rec) {
+                recHtml = `
+                    <div style="background:rgba(16,185,129,0.15);border:1px solid #10b981;border-radius:8px;padding:0.75rem;margin-top:0.75rem;">
+                        <strong style="color:#34d399;">🛡️ Recommended Safe Recovery Point: Snapshot #${rec.snapshot_number} (${escapeHTML(rec.name)})</strong>
+                        <p style="font-size:0.8rem;color:var(--text-secondary);margin:0.25rem 0;">Created at ${formatDate(rec.created_at)} | ${rec.total_files} files | WORM Protection: ${rec.is_locked ? '🔒 LOCKED' : 'Active'}</p>
+                        <ul style="font-size:0.78rem;margin:0.5rem 0 0.5rem 1.25rem;color:#e2e8f0;">
+                            ${(plan.safety_justification || []).map(j => `<li>${escapeHTML(j)}</li>`).join('')}
+                        </ul>
+                        <button class="btn btn-warning btn-sm" onclick="openRansomwareRecoveryModal('${rec.id}')" style="margin-top:0.5rem;">
+                            🚀 Launch Guided Clean Recovery Wizard
+                        </button>
+                    </div>
+                `;
+            } else {
+                recHtml = `<p style="color:#f87171;font-size:0.85rem;margin-top:0.5rem;">⚠️ No clean pre-incident snapshot recorded before the alarm. Please review quarantined snapshots in the Security Center.</p>`;
+            }
+
+            container.innerHTML = `
+                <div class="card" style="border:1px solid #ef4444;background:rgba(239,68,68,0.08);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <h3 style="color:#f87171;margin:0;font-size:1.1rem;">🚨 Active Ransomware Incident Detected</h3>
+                        <span class="badge badge-critical">${plan.alert ? plan.alert.alert_level : 'ALERT'}</span>
+                    </div>
+                    <p style="color:var(--text-secondary);font-size:0.85rem;margin:0.5rem 0 0 0;">
+                        CloudVault has isolated recent backup versions. Use the guided recovery engine below to restore verified clean files from before the incident without overwriting existing forensic data.
+                    </p>
+                    ${recHtml}
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="card" style="border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.05);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+                    <div>
+                        <strong style="color:#34d399;font-size:0.95rem;">✅ Threat Posture Clean (0 Active Ransomware Alerts)</strong>
+                        <p style="color:var(--text-secondary);font-size:0.8rem;margin:0.25rem 0 0 0;">Continuous Shannon entropy monitoring and heuristic anomaly protection are active.</p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="openRansomwareRecoveryModal()">
+                        🛡️ Recovery Readiness Check
+                    </button>
+                </div>
+            `;
+        }
+    } catch (e) {
+        container.innerHTML = "";
+    }
+}
+
+async function loadDRHistoryTable() {
+    const tbody = document.getElementById("dr-history-table-body");
+    const headerRow = document.getElementById("dr-history-table-header");
+    if (!tbody) return;
+
+    if (currentDRHistoryTab === "drills") {
+        if (headerRow) {
+            headerRow.innerHTML = `
+                <th>Drill ID</th>
+                <th>Scope / Type</th>
+                <th>Status</th>
+                <th>Files Verified</th>
+                <th>Restoration Speed</th>
+                <th>Measured RTO</th>
+                <th>Timestamp</th>
+                <th>Action</th>
+            `;
+        }
         const historyData = await api.getDRHistory(20);
         const drills = historyData.drills || [];
-        const tbody = document.getElementById("dr-history-table-body");
         tbody.innerHTML = "";
 
         if (drills.length === 0) {
-            tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>No synthetic recovery drills executed yet. Click 'Run Synthetic Recovery Drill' above to test your backup.</td></tr>";
+            tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>No synthetic recovery drills executed yet. Click 'Run Recovery Drill' to test your backup.</td></tr>";
             return;
         }
 
         drills.forEach(d => {
             const tr = document.createElement("tr");
             const statusClass = d.status === "PASSED" ? "badge-passed" : "badge-failed";
+            const scopeLabel = d.drill_type ? `${d.drill_type}${d.drill_scope ? ': ' + d.drill_scope : ''}` : "FULL_SNAPSHOT";
             tr.innerHTML = `
                 <td><code>${d.drill_id.substring(0, 8)}...</code></td>
+                <td style="font-size:0.8rem;"><span class="badge" style="background:#334155;">${escapeHTML(scopeLabel)}</span></td>
                 <td><span class="badge ${statusClass}">${d.status}</span></td>
-                <td>${d.files_tested}</td>
-                <td>${formatBytes(d.bytes_tested)}</td>
+                <td>${d.files_tested} (${formatBytes(d.bytes_tested)})</td>
                 <td><strong>${d.restoration_speed_mbps} MB/s</strong></td>
-                <td>${d.rpo_hours !== null ? d.rpo_hours + 'h' : '-'}</td>
-                <td>${d.estimated_rto_minutes} min</td>
+                <td>${d.duration_seconds}s</td>
                 <td>${formatDate(d.created_at)}</td>
+                <td><button class="btn btn-secondary btn-sm" onclick="openDrillReportModal('${d.drill_id}')" style="padding:0.2rem 0.5rem;font-size:0.75rem;">🔬 Report</button></td>
             `;
             tbody.appendChild(tr);
         });
+    } else {
+        if (headerRow) {
+            headerRow.innerHTML = `
+                <th>Operation ID</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Files Restored</th>
+                <th>Throughput</th>
+                <th>Duration (RTO)</th>
+                <th>RPO Age</th>
+                <th>Timestamp</th>
+            `;
+        }
+        const opsData = await api.getRecoveryOperations(20);
+        const ops = opsData.operations || [];
+        tbody.innerHTML = "";
 
-    } catch (err) {
-        console.error("Disaster Recovery load error:", err);
-        showToast("Could not load DR metrics: " + err.message, "error");
+        if (ops.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>No actual recovery operations recorded yet. Use 'Point-in-Time Restore' or 'Ransomware Recovery' to execute a restore.</td></tr>";
+            return;
+        }
+
+        ops.forEach(o => {
+            const tr = document.createElement("tr");
+            const statusClass = o.status === "SUCCESS" ? "badge-passed" : "badge-failed";
+            tr.innerHTML = `
+                <td><code>${o.operation_id.substring(0, 8)}...</code></td>
+                <td><span class="badge" style="background:#334155;">${o.operation_type}</span></td>
+                <td><span class="badge ${statusClass}">${o.status}</span></td>
+                <td>${o.files_restored} (${formatBytes(o.bytes_restored)})</td>
+                <td><strong>${o.throughput_mbps} MB/s</strong></td>
+                <td>${o.duration_seconds}s</td>
+                <td>${o.rpo_hours}h</td>
+                <td>${formatDate(o.created_at)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
     }
 }
 
 function setupDRControls() {
     const drillBtn = document.getElementById("trigger-dr-drill-btn");
+    const scopeTypeSelect = document.getElementById("dr-drill-scope-type");
+    const scopeInputWrapper = document.getElementById("dr-drill-scope-input-wrapper");
+    const scopeInput = document.getElementById("dr-drill-scope-input");
     const snapSelect = document.getElementById("dr-snapshot-select");
     const statusBox = document.getElementById("dr-drill-status");
 
-    if (!drillBtn) return;
-
-    drillBtn.addEventListener("click", async () => {
-        const snapId = snapSelect.value || null;
-        drillBtn.disabled = true;
-        drillBtn.textContent = "⏳ Executing Sandboxed Drill...";
-        statusBox.style.display = "block";
-        statusBox.innerHTML = "<em>Streaming backup blocks, verifying SHA-256 integrity, measuring throughput...</em>";
-
-        try {
-            const res = await api.simulateDRDrill(snapId);
-            if (res.status === "PASSED") {
-                statusBox.innerHTML = `
-                    <strong style="color:#10b981;">✅ RECOVERY DRILL PASSED (100% BIT-LEVEL INTEGRITY)</strong><br>
-                    Files Tested: ${res.files_tested} | Data Verified: ${formatBytes(res.bytes_tested)} | 
-                    Duration: ${res.duration_seconds}s | <strong>Speed: ${res.restoration_speed_mbps} MB/s</strong><br>
-                    Isolated test sandbox automatically removed without impacting live files.
-                `;
-                showToast("Synthetic recovery drill passed with 100% data integrity!", "success");
+    // Scope change toggle
+    if (scopeTypeSelect) {
+        scopeTypeSelect.addEventListener("change", () => {
+            const val = scopeTypeSelect.value;
+            if (val === "FOLDER" || val === "FILE") {
+                scopeInputWrapper.style.display = "block";
+                scopeInput.placeholder = val === "FOLDER" ? "e.g. documents/ or src/" : "e.g. resume.pdf or thesis.docx";
             } else {
-                statusBox.innerHTML = `
-                    <strong style="color:#ef4444;">❌ DRILL FAILED: ${escapeHTML(res.error_details || 'Integrity check failed')}</strong>
-                `;
-                showToast("Drill failed: Integrity mismatch detected.", "error");
+                scopeInputWrapper.style.display = "none";
             }
-            loadDisasterRecovery();
-        } catch (err) {
-            statusBox.innerHTML = `<span style="color:#ef4444;">Drill failed to execute: ${escapeHTML(err.message)}</span>`;
-            showToast("Drill execution failed: " + err.message, "error");
-        } finally {
-            drillBtn.disabled = false;
-            drillBtn.textContent = "🚀 Run Synthetic Recovery Drill";
+        });
+    }
+
+    // Drill execution handler
+    if (drillBtn) {
+        drillBtn.addEventListener("click", async () => {
+            const snapId = snapSelect ? snapSelect.value : null;
+            const scopeType = scopeTypeSelect ? scopeTypeSelect.value : "FULL_SNAPSHOT";
+            const scopeVal = scopeInput ? scopeInput.value.trim() : null;
+
+            drillBtn.disabled = true;
+            drillBtn.textContent = "⏳ Executing Drill...";
+            statusBox.style.display = "block";
+            statusBox.innerHTML = "<em>Streaming cloud objects, verifying AES-256-GCM envelope tags, recalculating bit-level SHA-256 digests...</em>";
+            statusBox.style.background = "rgba(56,189,248,0.1)";
+            statusBox.style.border = "1px solid #38bdf8";
+
+            try {
+                const res = await api.runAdvancedDRDrill({
+                    snapshot_id: snapId,
+                    drill_type: scopeType,
+                    drill_scope: scopeVal,
+                    inject_corruption: (scopeType === "CORRUPTED_OBJECT_TEST")
+                });
+
+                if (res.status === "PASSED") {
+                    statusBox.style.background = "rgba(16,185,129,0.12)";
+                    statusBox.style.border = "1px solid #10b981";
+                    statusBox.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <strong style="color:#10b981;">✅ ADVANCED DRILL PASSED (100% BIT-LEVEL INTEGRITY)</strong>
+                            <button class="btn btn-secondary btn-sm" onclick="openDrillReportModal('${res.drill_id}')" style="padding:0.2rem 0.6rem;font-size:0.75rem;">🔬 View Full Report</button>
+                        </div>
+                        <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.4rem;">
+                            Scope: <code>${res.drill_type}</code> | Files Tested: <strong>${res.files_tested}</strong> | Data Verified: ${formatBytes(res.bytes_tested)} | 
+                            Duration: ${res.duration_seconds}s | <strong>Speed: ${res.restoration_speed_mbps} MB/s</strong><br>
+                            Decryption authentication verified. Primary storage was untouched.
+                        </div>
+                    `;
+                    showToast("Synthetic recovery drill passed with 100% data integrity!", "success");
+                } else {
+                    statusBox.style.background = "rgba(239,68,68,0.12)";
+                    statusBox.style.border = "1px solid #ef4444";
+                    statusBox.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <strong style="color:#f87171;">❌ DRILL INTEGRITY CHECK FAILED</strong>
+                            <button class="btn btn-secondary btn-sm" onclick="openDrillReportModal('${res.drill_id}')" style="padding:0.2rem 0.6rem;font-size:0.75rem;">🔬 View Error Details</button>
+                        </div>
+                        <p style="font-size:0.82rem;color:#fca5a5;margin:0.35rem 0 0 0;">
+                            ${escapeHTML(res.error_details || 'Hash mismatch detected on reconstructed payload')}
+                        </p>
+                    `;
+                    showToast("Drill failed: Integrity mismatch detected.", "error");
+                }
+                loadDisasterRecovery();
+            } catch (err) {
+                statusBox.style.background = "rgba(239,68,68,0.12)";
+                statusBox.style.border = "1px solid #ef4444";
+                statusBox.innerHTML = `<span style="color:#f87171;">Drill execution error: ${escapeHTML(err.message)}</span>`;
+                showToast("Drill failed: " + err.message, "error");
+            } finally {
+                drillBtn.disabled = false;
+                drillBtn.textContent = "🚀 Run Recovery Drill";
+            }
+        });
+    }
+
+    // Modal buttons
+    const btnAdvDrill = document.getElementById("dr-btn-open-advanced-drill");
+    if (btnAdvDrill) {
+        btnAdvDrill.addEventListener("click", () => {
+            const panel = document.getElementById("dr-drill-scope-type");
+            if (panel) panel.scrollIntoView({ behavior: "smooth" });
+        });
+    }
+
+    const btnPit = document.getElementById("dr-btn-open-pit-wizard");
+    if (btnPit) btnPit.addEventListener("click", () => openPointInTimeModal());
+
+    const btnRansom = document.getElementById("dr-btn-open-ransomware-wizard");
+    if (btnRansom) btnRansom.addEventListener("click", () => openRansomwareRecoveryModal());
+
+    const btnSandbox = document.getElementById("dr-btn-open-sandbox");
+    if (btnSandbox) btnSandbox.addEventListener("click", () => openRecoverySandboxModal());
+
+    const btnExport = document.getElementById("dr-btn-export-report");
+    if (btnExport) btnExport.addEventListener("click", () => exportDRReport());
+
+    // History tab toggle
+    const btnHistDrills = document.getElementById("dr-tab-history-drills");
+    const btnHistOps = document.getElementById("dr-tab-history-ops");
+    if (btnHistDrills && btnHistOps) {
+        btnHistDrills.addEventListener("click", () => {
+            currentDRHistoryTab = "drills";
+            btnHistDrills.className = "btn btn-sm btn-primary";
+            btnHistOps.className = "btn btn-sm btn-secondary";
+            loadDRHistoryTable();
+        });
+        btnHistOps.addEventListener("click", () => {
+            currentDRHistoryTab = "ops";
+            btnHistDrills.className = "btn btn-sm btn-secondary";
+            btnHistOps.className = "btn btn-sm btn-primary";
+            loadDRHistoryTable();
+        });
+    }
+}
+
+// -------------------------------------------------------------
+// Modals: Drill Report, Point-in-Time, Ransomware Wizard, Sandbox
+// -------------------------------------------------------------
+async function openDrillReportModal(drillId) {
+    const modal = document.getElementById("dr-report-modal");
+    const body = document.getElementById("dr-report-modal-body");
+    if (!modal || !body) return;
+
+    modal.style.display = "flex";
+    body.innerHTML = "<p>Loading drill report...</p>";
+
+    try {
+        const rep = await api.getDRDrillReport(drillId);
+        const files = rep.verification_report || [];
+        const isPassed = rep.status === "PASSED";
+
+        let filesHtml = "";
+        if (files.length === 0) {
+            filesHtml = `<p style="font-size:0.85rem;color:var(--text-secondary);">No per-file report entries recorded for this drill.</p>`;
+        } else {
+            filesHtml = `
+                <div class="table-wrapper" style="max-height:350px;overflow-y:auto;margin-top:1rem;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>File Name</th>
+                                <th>Expected SHA-256</th>
+                                <th>Computed SHA-256</th>
+                                <th>Encrypted</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${files.map(f => `
+                                <tr>
+                                    <td><code>${escapeHTML(f.file_name || f.relative_path)}</code></td>
+                                    <td><code style="font-size:0.72rem;">${(f.expected_sha256 || '').substring(0, 16)}...</code></td>
+                                    <td><code style="font-size:0.72rem;">${(f.computed_sha256 || '').substring(0, 16)}...</code></td>
+                                    <td>${f.is_encrypted ? '🔐 AES-256-GCM' : 'Plaintext'}</td>
+                                    <td><span class="badge ${f.status === 'PASSED' ? 'badge-passed' : 'badge-failed'}">${f.status}</span></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
         }
-    });
+
+        body.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                <div>
+                    <strong style="font-size:1.05rem;">Drill: <code>${rep.drill_id.substring(0, 12)}...</code></strong>
+                    <div style="font-size:0.8rem;color:var(--text-secondary);">Target Snapshot: <strong>${escapeHTML(rep.snapshot_name)}</strong> | Type: <code>${rep.drill_type}</code></div>
+                </div>
+                <span class="badge ${isPassed ? 'badge-passed' : 'badge-failed'}" style="font-size:0.9rem;padding:0.35rem 0.8rem;">
+                    ${rep.status}
+                </span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:0.75rem;background:rgba(255,255,255,0.03);padding:0.75rem;border-radius:8px;font-size:0.8rem;">
+                <div>Files Tested: <strong>${rep.files_tested}</strong></div>
+                <div>Bytes Verified: <strong>${formatBytes(rep.bytes_tested)}</strong></div>
+                <div>Throughput: <strong>${rep.restoration_speed_mbps} MB/s</strong></div>
+                <div>Duration: <strong>${rep.duration_seconds}s</strong></div>
+            </div>
+            ${rep.error_details ? `<div style="background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:6px;padding:0.6rem;margin-top:0.75rem;color:#fca5a5;font-size:0.8rem;"><strong>Failure Reason:</strong> ${escapeHTML(rep.error_details)}</div>` : ''}
+            ${filesHtml}
+            <div style="display:flex;justify-content:flex-end;margin-top:1.25rem;">
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dr-report-modal').style.display='none'">Close Report</button>
+            </div>
+        `;
+    } catch (err) {
+        body.innerHTML = `<p style="color:#ef4444;">Error loading report: ${escapeHTML(err.message)}</p>`;
+    }
+}
+
+async function openPointInTimeModal() {
+    const modal = document.getElementById("dr-pit-modal");
+    const body = document.getElementById("dr-pit-modal-body");
+    if (!modal || !body) return;
+
+    modal.style.display = "flex";
+    body.innerHTML = "<p>Loading recovery snapshots...</p>";
+
+    try {
+        const snapshotsData = await api.getSnapshots();
+        const snapshots = Array.isArray(snapshotsData) ? snapshotsData : (snapshotsData.snapshots || []);
+
+        if (snapshots.length === 0) {
+            body.innerHTML = "<p>No snapshots available for recovery.</p>";
+            return;
+        }
+
+        body.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Select Recovery Snapshot</label>
+                    <select id="pit-snapshot-select" style="width:100%;">
+                        ${snapshots.map((s, idx) => `
+                            <option value="${s.id}" ${idx === 0 ? 'selected' : ''}>
+                                #${s.snapshot_number} ${escapeHTML(s.name)} (${formatDate(s.created_at)}) - ${s.total_files} files ${s.is_locked ? '🔒' : ''}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Destination Directory (Defaults to safe isolated folder)</label>
+                    <input type="text" id="pit-destination-input" placeholder="e.g. data/recovered/pit_restore_1" style="width:100%;">
+                </div>
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Conflict Resolution Strategy</label>
+                    <select id="pit-conflict-select" style="width:100%;">
+                        <option value="keep_both">Keep Both (Append _restored suffix on collision)</option>
+                        <option value="overwrite">Overwrite Existing Files</option>
+                        <option value="skip">Skip Existing Files</option>
+                    </select>
+                </div>
+                <div style="display:flex;gap:0.75rem;">
+                    <button id="pit-preview-btn" class="btn btn-secondary btn-sm">🔍 Preview Affected Files</button>
+                    <button id="pit-execute-btn" class="btn btn-primary btn-sm">🚀 Execute Point-in-Time Restore</button>
+                </div>
+                <div id="pit-results-container" style="max-height:260px;overflow-y:auto;display:none;background:rgba(0,0,0,0.25);border:1px solid var(--border-color);border-radius:6px;padding:0.75rem;font-size:0.8rem;"></div>
+            </div>
+        `;
+
+        document.getElementById("pit-preview-btn").addEventListener("click", async () => {
+            const snapId = document.getElementById("pit-snapshot-select").value;
+            const dest = document.getElementById("pit-destination-input").value;
+            const resBox = document.getElementById("pit-results-container");
+            resBox.style.display = "block";
+            resBox.innerHTML = "<em>Inspecting snapshot contents and comparing with destination...</em>";
+
+            try {
+                const prev = await api.getPointInTimePreview(snapId, dest);
+                const files = prev.files || [];
+                const diff = prev.diff_summary || {};
+                resBox.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+                        <strong>Total: ${prev.total_files} files (${formatBytes(prev.total_bytes)})</strong>
+                        <span>New: <span style="color:#34d399;">${diff.new || 0}</span> | Modified: <span style="color:#fbbf24;">${diff.modified || 0}</span> | Unchanged: <span style="color:#94a3b8;">${diff.unchanged || 0}</span></span>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr><th>File</th><th>Size</th><th>Encryption</th><th>Diff Status</th></tr>
+                            </thead>
+                            <tbody>
+                                ${files.slice(0, 20).map(f => `
+                                    <tr>
+                                        <td><code>${escapeHTML(f.relative_path)}</code></td>
+                                        <td>${formatBytes(f.file_size)}</td>
+                                        <td>${f.is_encrypted ? `🔐 AES-256-GCM (v${f.key_version})` : 'Plaintext'}</td>
+                                        <td><span class="badge badge-${f.diff_status === 'NEW' ? 'optimal' : (f.diff_status === 'MODIFIED' ? 'warning' : 'passed')}">${f.diff_status}</span></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } catch (e) {
+                resBox.innerHTML = `<span style="color:#ef4444;">Preview error: ${escapeHTML(e.message)}</span>`;
+            }
+        });
+
+        document.getElementById("pit-execute-btn").addEventListener("click", async () => {
+            const snapId = document.getElementById("pit-snapshot-select").value;
+            const dest = document.getElementById("pit-destination-input").value;
+            const conflict = document.getElementById("pit-conflict-select").value;
+            const resBox = document.getElementById("pit-results-container");
+            resBox.style.display = "block";
+            resBox.innerHTML = "<em>Executing point-in-time restoration with bit-level verification...</em>";
+
+            try {
+                const res = await api.restoreEntireSnapshot(snapId, dest, conflict);
+                resBox.innerHTML = `
+                    <div style="color:#10b981;font-weight:700;">✅ ${escapeHTML(res.message)}</div>
+                    <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.35rem;">
+                        Restored: ${res.files_restored} files (${formatBytes(res.bytes_restored)})<br>
+                        Destination: <code>${escapeHTML(res.destination)}</code>
+                    </div>
+                `;
+                showToast("Point-in-time restore completed successfully!", "success");
+                loadDisasterRecovery();
+            } catch (e) {
+                resBox.innerHTML = `<span style="color:#ef4444;">Restore failed: ${escapeHTML(e.message)}</span>`;
+                showToast("Restore failed: " + e.message, "error");
+            }
+        });
+
+    } catch (e) {
+        body.innerHTML = `<p style="color:#ef4444;">Error: ${escapeHTML(e.message)}</p>`;
+    }
+}
+
+async function openRansomwareRecoveryModal(preselectedSnapId = null) {
+    const modal = document.getElementById("dr-ransomware-modal");
+    const body = document.getElementById("dr-ransomware-modal-body");
+    if (!modal || !body) return;
+
+    modal.style.display = "flex";
+    body.innerHTML = "<p>Generating ransomware incident recovery plan...</p>";
+
+    try {
+        const plan = await api.getRansomwareRecoveryPlan();
+        const rec = plan.recommended_snapshot;
+
+        if (!rec) {
+            body.innerHTML = `
+                <p>No clean recovery snapshots could be verified prior to the ransomware incident.</p>
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dr-ransomware-modal').style.display='none'">Close</button>
+            `;
+            return;
+        }
+
+        body.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+                <div style="background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:6px;padding:0.75rem;">
+                    <strong style="color:#f87171;">Threat Posture: Active Incident Protection</strong>
+                    <p style="font-size:0.82rem;color:var(--text-secondary);margin:0.25rem 0 0 0;">
+                        CloudVault has isolated corrupted or suspicious blocks. You are preparing to recover from the latest verified clean point: <strong>Snapshot #${rec.snapshot_number} (${escapeHTML(rec.name)})</strong>.
+                    </p>
+                </div>
+                <div>
+                    <h4 style="margin:0 0 0.5rem 0;font-size:0.95rem;">Clean Recovery Point Verification:</h4>
+                    <ul style="font-size:0.8rem;margin:0 0 0 1.25rem;color:#e2e8f0;">
+                        ${(plan.safety_justification || []).map(j => `<li>${escapeHTML(j)}</li>`).join('')}
+                    </ul>
+                </div>
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Isolated Recovery Folder (Prevents overwriting forensic data)</label>
+                    <input type="text" id="rw-destination-input" value="${plan.suggested_destination || 'data/recovered/ransomware_clean_recovery'}" style="width:100%;">
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;">
+                    <input type="checkbox" id="rw-confirm-checkbox">
+                    <label for="rw-confirm-checkbox" style="font-size:0.85rem;color:#f8fafc;cursor:pointer;">
+                        I confirm restoration of this verified pre-incident baseline.
+                    </label>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:0.5rem;">
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dr-ransomware-modal').style.display='none'">Cancel</button>
+                    <button id="rw-execute-btn" class="btn btn-danger btn-sm" disabled>Confirm & Execute Clean Recovery</button>
+                </div>
+                <div id="rw-status-box" style="display:none;padding:0.75rem;border-radius:6px;font-size:0.82rem;"></div>
+            </div>
+        `;
+
+        const chk = document.getElementById("rw-confirm-checkbox");
+        const btnExec = document.getElementById("rw-execute-btn");
+        chk.addEventListener("change", () => {
+            btnExec.disabled = !chk.checked;
+        });
+
+        btnExec.addEventListener("click", async () => {
+            btnExec.disabled = true;
+            btnExec.textContent = "⏳ Restoring...";
+            const sBox = document.getElementById("rw-status-box");
+            sBox.style.display = "block";
+            sBox.style.background = "rgba(56,189,248,0.1)";
+            sBox.innerHTML = "<em>Restoring verified clean files with bit-level SHA-256 checks...</em>";
+
+            try {
+                const dest = document.getElementById("rw-destination-input").value;
+                const res = await api.executeRansomwareRecovery({
+                    snapshot_id: rec.id,
+                    destination_dir: dest,
+                    conflict_strategy: "keep_both",
+                    confirmed: true
+                });
+
+                sBox.style.background = "rgba(16,185,129,0.15)";
+                sBox.style.border = "1px solid #10b981";
+                sBox.innerHTML = `
+                    <strong style="color:#10b981;">✅ RANSOMWARE RECOVERY COMPLETE</strong><br>
+                    Restored <strong>${res.files_restored} verified files</strong> (${formatBytes(res.bytes_restored)})<br>
+                    Destination: <code>${escapeHTML(res.destination)}</code><br>
+                    Duration: ${res.duration_seconds}s | Speed: ${res.restoration_speed_mbps} MB/s
+                `;
+                showToast("Clean recovery point restored successfully!", "success");
+                loadDisasterRecovery();
+            } catch (err) {
+                sBox.style.background = "rgba(239,68,68,0.15)";
+                sBox.style.border = "1px solid #ef4444";
+                sBox.innerHTML = `<span style="color:#f87171;">Recovery failed: ${escapeHTML(err.message)}</span>`;
+                showToast("Recovery failed: " + err.message, "error");
+            }
+        });
+
+    } catch (e) {
+        body.innerHTML = `<p style="color:#ef4444;">Error: ${escapeHTML(e.message)}</p>`;
+    }
+}
+
+async function openRecoverySandboxModal() {
+    const modal = document.getElementById("dr-sandbox-modal");
+    const body = document.getElementById("dr-sandbox-modal-body");
+    if (!modal || !body) return;
+
+    modal.style.display = "flex";
+    body.innerHTML = "<p>Loading recovery snapshots...</p>";
+
+    try {
+        const snapshotsData = await api.getSnapshots();
+        const snapshots = Array.isArray(snapshotsData) ? snapshotsData : (snapshotsData.snapshots || []);
+
+        if (snapshots.length === 0) {
+            body.innerHTML = "<p>No snapshots available.</p>";
+            return;
+        }
+
+        body.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin:0;">
+                    Streams backup objects into an isolated temporary RAM/disk sandbox, verifies SHA-256 signatures, validates envelope decryption, and lets you safely inspect file contents before restoring to live storage.
+                </p>
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Select Snapshot</label>
+                    <select id="sb-snapshot-select" style="width:100%;">
+                        ${snapshots.map((s, idx) => `
+                            <option value="${s.id}" ${idx === 0 ? 'selected' : ''}>
+                                #${s.snapshot_number} ${escapeHTML(s.name)} (${formatDate(s.created_at)})
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+                <div>
+                    <button id="sb-run-btn" class="btn btn-primary btn-sm">🚀 Run Sandboxed Preview</button>
+                </div>
+                <div id="sb-results-container" style="display:none;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:6px;padding:0.75rem;max-height:350px;overflow-y:auto;font-size:0.82rem;"></div>
+            </div>
+        `;
+
+        document.getElementById("sb-run-btn").addEventListener("click", async () => {
+            const snapId = document.getElementById("sb-snapshot-select").value;
+            const rBox = document.getElementById("sb-results-container");
+            rBox.style.display = "block";
+            rBox.innerHTML = "<em>Spinning up isolated sandbox, downloading blocks, verifying digests...</em>";
+
+            try {
+                const res = await api.runRecoverySandboxPreview({ snapshot_id: snapId });
+                const previews = res.previews || [];
+                rBox.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;border-bottom:1px solid var(--border-color);padding-bottom:0.35rem;">
+                        <strong>Tested: ${res.files_tested} files</strong>
+                        <span style="color:#10b981;">Status: ${res.status}</span>
+                    </div>
+                    ${previews.map(p => `
+                        <div style="margin-bottom:0.75rem;padding-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.06);">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <code>${escapeHTML(p.relative_path)}</code>
+                                <span class="badge ${p.status === 'VERIFIED' ? 'badge-passed' : 'badge-failed'}">${p.status}</span>
+                            </div>
+                            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.2rem;">
+                                Expected: <code>${(p.expected_sha256 || '').substring(0, 16)}...</code> | Computed: <code>${(p.computed_sha256 || '').substring(0, 16)}...</code> | Match: ${p.sha256_verified ? '✅' : '❌'}
+                            </div>
+                            ${p.preview_snippet ? `
+                                <pre style="background:#0f172a;padding:0.5rem;border-radius:4px;margin-top:0.4rem;font-size:0.72rem;max-height:100px;overflow-y:auto;">${escapeHTML(p.preview_snippet)}</pre>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                `;
+            } catch (err) {
+                rBox.innerHTML = `<span style="color:#ef4444;">Sandbox execution error: ${escapeHTML(err.message)}</span>`;
+            }
+        });
+
+    } catch (e) {
+        body.innerHTML = `<p style="color:#ef4444;">Error: ${escapeHTML(e.message)}</p>`;
+    }
+}
+
+function exportDRReport() {
+    if (!currentDRTelemetry) {
+        showToast("No telemetry loaded yet to export.", "warning");
+        return;
+    }
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentDRTelemetry, null, 2));
+    const dlAnchor = document.createElement("a");
+    dlAnchor.setAttribute("href", dataStr);
+    dlAnchor.setAttribute("download", `cloudvault_dr_report_${new Date().toISOString().substring(0, 10)}.json`);
+    document.body.appendChild(dlAnchor);
+    dlAnchor.click();
+    dlAnchor.remove();
+    showToast("Disaster Recovery report exported successfully!", "success");
 }
 
 // 2. Security & Ransomware Shield Controller

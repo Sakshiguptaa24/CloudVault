@@ -162,6 +162,8 @@ def run_migrations(db_path: str = None):
         id VARCHAR(36) PRIMARY KEY,
         user_id VARCHAR(36) NOT NULL,
         snapshot_id VARCHAR(36) NOT NULL,
+        drill_type VARCHAR(50) DEFAULT 'FULL_SNAPSHOT',
+        drill_scope VARCHAR(255),
         files_tested INTEGER NOT NULL,
         bytes_tested BIGINT NOT NULL,
         duration_seconds FLOAT NOT NULL,
@@ -170,11 +172,19 @@ def run_migrations(db_path: str = None):
         estimated_rto_minutes FLOAT DEFAULT 0.0,
         status VARCHAR(20) NOT NULL,
         error_details TEXT,
+        verification_report TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id),
         FOREIGN KEY(snapshot_id) REFERENCES snapshots(id)
     )
     """)
+    if table_exists("dr_drills"):
+        if not column_exists("dr_drills", "drill_type"):
+            cursor.execute("ALTER TABLE dr_drills ADD COLUMN drill_type VARCHAR(50) DEFAULT 'FULL_SNAPSHOT'")
+        if not column_exists("dr_drills", "drill_scope"):
+            cursor.execute("ALTER TABLE dr_drills ADD COLUMN drill_scope VARCHAR(255)")
+        if not column_exists("dr_drills", "verification_report"):
+            cursor.execute("ALTER TABLE dr_drills ADD COLUMN verification_report TEXT")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_dr_user ON dr_drills(user_id)")
 
     # 9. Create 'mfa_recovery_codes' table
@@ -190,6 +200,34 @@ def run_migrations(db_path: str = None):
     )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_mfa_user ON mfa_recovery_codes(user_id)")
+
+    # 10. Create 'recovery_operations' table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS recovery_operations (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        snapshot_id VARCHAR(36),
+        operation_type VARCHAR(50) NOT NULL,
+        target_path VARCHAR(1000),
+        destination_path VARCHAR(1000),
+        conflict_strategy VARCHAR(50) DEFAULT 'keep_both',
+        status VARCHAR(20) DEFAULT 'SUCCESS',
+        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME,
+        duration_seconds FLOAT DEFAULT 0.0,
+        rpo_hours FLOAT DEFAULT 0.0,
+        files_restored INTEGER DEFAULT 0,
+        bytes_restored BIGINT DEFAULT 0,
+        throughput_mbps FLOAT DEFAULT 0.0,
+        verification_report TEXT DEFAULT '{}',
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id),
+        FOREIGN KEY(snapshot_id) REFERENCES snapshots(id)
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rec_user ON recovery_operations(user_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rec_snapshot ON recovery_operations(snapshot_id)")
 
     conn.commit()
     conn.close()

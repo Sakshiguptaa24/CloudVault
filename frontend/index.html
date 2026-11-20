@@ -274,73 +274,188 @@ GCS_REGION=us-central1
             </div>
         </div>
 
-        <!-- Tab 6: Disaster Recovery Center -->
+        <!-- Tab 6: Disaster Recovery Command Center -->
         <div id="dr-tab" class="tab-content">
+            <!-- Mission Control Header Card -->
+            <div class="card" style="margin-bottom:1.5rem;background:linear-gradient(135deg, rgba(30,41,59,0.9), rgba(15,23,42,0.95));border:1px solid rgba(56,189,248,0.3);">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+                    <div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <h2 class="card-title" style="margin:0;font-size:1.35rem;">🚨 Disaster Recovery Command Center</h2>
+                            <span id="dr-readiness-banner-badge" class="dr-metric-badge badge-optimal">READY</span>
+                        </div>
+                        <p style="color:var(--text-secondary);font-size:0.85rem;margin:0.35rem 0 0 0;">
+                            Live autonomous cyber-recovery console, synthetic drills, bit-level integrity verification, and point-in-time incident restoration.
+                        </p>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                        <button id="dr-btn-open-advanced-drill" class="btn btn-primary btn-sm">🚀 Run Advanced Drill</button>
+                        <button id="dr-btn-open-pit-wizard" class="btn btn-secondary btn-sm">🕒 Point-in-Time Restore</button>
+                        <button id="dr-btn-open-ransomware-wizard" class="btn btn-warning btn-sm">🛡️ Ransomware Recovery</button>
+                        <button id="dr-btn-open-sandbox" class="btn btn-secondary btn-sm">🔍 Recovery Sandbox</button>
+                        <button id="dr-btn-export-report" class="btn btn-secondary btn-sm" title="Export Disaster Recovery Report">📊 Export Report</button>
+                    </div>
+                </div>
+                <!-- Readiness Factors Sub-Bar -->
+                <div id="dr-readiness-factors" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.08);font-size:0.78rem;">
+                    <span style="color:var(--text-secondary);">Readiness Factors:</span>
+                    <span id="factor-rpo" class="badge-optimal" style="padding:0.15rem 0.5rem;border-radius:4px;">RPO: --</span>
+                    <span id="factor-drills" class="badge-optimal" style="padding:0.15rem 0.5rem;border-radius:4px;">Drills: --</span>
+                    <span id="factor-shield" class="badge-optimal" style="padding:0.15rem 0.5rem;border-radius:4px;">Shield: --</span>
+                    <span id="factor-worm" class="badge-optimal" style="padding:0.15rem 0.5rem;border-radius:4px;">WORM: --</span>
+                    <span id="factor-integrity" class="badge-optimal" style="padding:0.15rem 0.5rem;border-radius:4px;">Integrity: --</span>
+                </div>
+            </div>
+
+            <!-- 6-KPI Mission Control Telemetry Grid -->
             <div class="dr-metrics-grid">
+                <!-- KPI 1: Calculated RPO -->
                 <div class="dr-metric-card" id="dr-rpo-card">
-                    <span class="stat-title">Recovery Point Objective (RPO)</span>
+                    <span class="stat-title" style="display:flex;justify-content:space-between;">
+                        <span>Recovery Point (RPO)</span>
+                        <span style="font-size:0.68rem;color:var(--text-secondary);">CALCULATED</span>
+                    </span>
                     <span id="dr-rpo-value" class="dr-metric-value">-</span>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
                         <span id="dr-rpo-badge" class="dr-metric-badge badge-optimal">OPTIMAL</span>
-                        <span style="font-size:0.75rem;color:var(--text-secondary);">Target: 24h</span>
+                        <span id="dr-rpo-sla" style="font-size:0.75rem;color:var(--text-secondary);">SLA Target: 24h</span>
                     </div>
                 </div>
+
+                <!-- KPI 2: Measured RTO -->
                 <div class="dr-metric-card" id="dr-rto-card">
-                    <span class="stat-title">Measured Recovery Time (RTO)</span>
+                    <span class="stat-title" style="display:flex;justify-content:space-between;">
+                        <span>Measured Restore (RTO)</span>
+                        <span style="font-size:0.68rem;color:var(--text-secondary);">MEASURED</span>
+                    </span>
                     <span id="dr-rto-value" class="dr-metric-value">-</span>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
                         <span id="dr-rto-speed" style="font-size:0.75rem;color:var(--text-secondary);">Speed: - MB/s</span>
                         <span id="dr-rto-badge" class="dr-metric-badge badge-optimal">VERIFIED</span>
                     </div>
                 </div>
-                <div class="dr-metric-card" id="dr-readiness-card">
-                    <span class="stat-title">Recovery Readiness Score</span>
-                    <span id="dr-readiness-value" class="dr-metric-value">- / 100</span>
+
+                <!-- KPI 3: Available Recovery Points -->
+                <div class="dr-metric-card" id="dr-recovery-points-card">
+                    <span class="stat-title" style="display:flex;justify-content:space-between;">
+                        <span>Recovery Points</span>
+                        <span style="font-size:0.68rem;color:var(--text-secondary);">DATABASE</span>
+                    </span>
+                    <span id="dr-points-total" class="dr-metric-value">-</span>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
-                        <span id="dr-readiness-badge" class="dr-metric-badge badge-optimal">READY</span>
-                        <span id="dr-drills-count" style="font-size:0.75rem;color:var(--text-secondary);">0 Drills</span>
+                        <span id="dr-points-verified" style="font-size:0.75rem;color:#34d399;">- Verified</span>
+                        <span id="dr-points-worm" style="font-size:0.75rem;color:#a5b4fc;">- WORM</span>
+                    </div>
+                </div>
+
+                <!-- KPI 4: Active Recovery Incidents -->
+                <div class="dr-metric-card" id="dr-incidents-card">
+                    <span class="stat-title" style="display:flex;justify-content:space-between;">
+                        <span>Active Incidents</span>
+                        <span style="font-size:0.68rem;color:var(--text-secondary);">SECURITY & DR</span>
+                    </span>
+                    <span id="dr-incidents-count" class="dr-metric-value">0</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
+                        <span id="dr-incidents-badge" class="dr-metric-badge badge-optimal">ALL CLEAR</span>
+                        <span id="dr-failed-ops" style="font-size:0.75rem;color:var(--text-secondary);">0 Failed Ops</span>
+                    </div>
+                </div>
+
+                <!-- KPI 5: Last Verified Snapshot -->
+                <div class="dr-metric-card" id="dr-last-verified-card">
+                    <span class="stat-title" style="display:flex;justify-content:space-between;">
+                        <span>Last Verified Point</span>
+                        <span style="font-size:0.68rem;color:var(--text-secondary);">SHA-256 CHECK</span>
+                    </span>
+                    <span id="dr-last-verified-title" class="dr-metric-value" style="font-size:1.35rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">-</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
+                        <span id="dr-last-verified-date" style="font-size:0.75rem;color:var(--text-secondary);">-</span>
+                        <span id="dr-last-verified-status" class="dr-metric-badge badge-optimal">VERIFIED</span>
+                    </div>
+                </div>
+
+                <!-- KPI 6: Data Protection Scope -->
+                <div class="dr-metric-card" id="dr-protection-scope-card">
+                    <span class="stat-title" style="display:flex;justify-content:space-between;">
+                        <span>Protected Data</span>
+                        <span style="font-size:0.68rem;color:var(--text-secondary);">STORAGE</span>
+                    </span>
+                    <span id="dr-protected-bytes" class="dr-metric-value">- MB</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">
+                        <span id="dr-unprotected-files" style="font-size:0.75rem;color:var(--text-secondary);">0 unsynced</span>
+                        <span id="dr-protection-badge" class="dr-metric-badge badge-optimal">SYNCED</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Drill Execution Panel -->
-            <div class="card" style="margin-bottom:1.5rem;">
-                <div class="card-header">
-                    <h2 class="card-title">Simulate Sandboxed Disaster Recovery Drill</h2>
-                </div>
-                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
-                    Non-destructive synthetic drill streams backup blocks from cloud storage into an isolated sandbox, verifies cryptographic SHA-256 integrity, calculates real restoration speed, and safely wipes the temporary sandbox without touching primary files.
-                </p>
-                <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;">
-                    <select id="dr-snapshot-select" style="min-width:240px;flex:1;"></select>
-                    <button id="trigger-dr-drill-btn" class="btn btn-primary">
-                        🚀 Run Synthetic Recovery Drill
-                    </button>
-                </div>
-                <div id="dr-drill-status" style="margin-top:1rem;display:none;padding:0.75rem;border-radius:8px;background:rgba(56,189,248,0.1);border:1px solid #38bdf8;font-size:0.85rem;"></div>
+            <!-- Guided Ransomware Recovery Center Card -->
+            <div id="dr-ransomware-alert-container" style="margin-bottom:1.5rem;">
+                <!-- Dynamically populated if active threat, or clean baseline card -->
             </div>
 
-            <!-- Historical Drills Table -->
-            <div class="card">
+            <!-- Advanced Synthetic Drill Execution Panel -->
+            <div class="card" style="margin-bottom:1.5rem;">
                 <div class="card-header">
-                    <h2 class="card-title">Recovery Drill Audit History</h2>
+                    <h2 class="card-title">🚀 Advanced Synthetic Recovery Drill Engine</h2>
+                    <span class="dr-metric-badge badge-optimal">Zero-Risk Sandbox</span>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem;">
+                    Perform non-destructive bit-level disaster recovery drills. Streams encrypted cloud blocks, validates envelope decryption tags (AES-256-GCM), recomputes SHA-256 hashes, calculates real-time network throughput, and leaves primary disk files completely untouched.
+                </p>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:1rem;align-items:end;">
+                    <div>
+                        <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Drill Target Scope</label>
+                        <select id="dr-drill-scope-type" style="width:100%;">
+                            <option value="FULL_SNAPSHOT">Full Snapshot (All Files)</option>
+                            <option value="FOLDER">Specific Directory Folder</option>
+                            <option value="FILE">Single Critical File</option>
+                            <option value="POINT_IN_TIME">Point-in-Time Historical</option>
+                            <option value="RANSOMWARE_PRE_INCIDENT">Pre-Ransomware Clean Baseline</option>
+                            <option value="CORRUPTED_OBJECT_TEST">Corrupted Object Detection Test (Inject Fault)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Target Snapshot</label>
+                        <select id="dr-snapshot-select" style="width:100%;"></select>
+                    </div>
+                    <div id="dr-drill-scope-input-wrapper" style="display:none;">
+                        <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.35rem;">Folder Path or File Name</label>
+                        <input type="text" id="dr-drill-scope-input" placeholder="e.g. documents/ or thesis.pdf" style="width:100%;">
+                    </div>
+                    <div>
+                        <button id="trigger-dr-drill-btn" class="btn btn-primary" style="width:100%;">
+                            🚀 Run Recovery Drill
+                        </button>
+                    </div>
+                </div>
+                <div id="dr-drill-status" style="margin-top:1rem;display:none;padding:0.75rem;border-radius:8px;font-size:0.85rem;"></div>
+            </div>
+
+            <!-- Historical Drills & Recovery Operations Table -->
+            <div class="card">
+                <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                    <h2 class="card-title" style="margin:0;">Recovery Audit History & Verification Ledger</h2>
+                    <div style="display:flex;gap:0.5rem;">
+                        <button id="dr-tab-history-drills" class="btn btn-sm btn-primary">Synthetic Drills</button>
+                        <button id="dr-tab-history-ops" class="btn btn-sm btn-secondary">Actual Restores</button>
+                    </div>
                 </div>
                 <div class="table-wrapper">
                     <table>
                         <thead>
-                            <tr>
+                            <tr id="dr-history-table-header">
                                 <th>Drill ID</th>
+                                <th>Scope / Type</th>
                                 <th>Status</th>
                                 <th>Files Verified</th>
-                                <th>Tested Bytes</th>
                                 <th>Restoration Speed</th>
-                                <th>RPO Age</th>
-                                <th>Estimated Full RTO</th>
+                                <th>Measured RTO</th>
                                 <th>Timestamp</th>
+                                <th>Report</th>
                             </tr>
                         </thead>
                         <tbody id="dr-history-table-body">
-                            <tr><td colspan="8" style="text-align:center;">Loading drill history...</td></tr>
+                            <tr><td colspan="8" style="text-align:center;">Loading recovery history...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -987,17 +1102,22 @@ GCS_REGION=us-central1
         
         <div class="ai-suggestions-row">
             <button class="ai-pill" data-prompt="How many files are currently protected?">🛡️ Protected files?</button>
+            <button class="ai-pill" data-prompt="Can I recover my latest backup?">🚨 Latest backup recoverable?</button>
+            <button class="ai-pill" data-prompt="What is my last verified recovery point?">⏳ Last verified point?</button>
+            <button class="ai-pill" data-prompt="How long would recovery take?">⏱️ How long to recover?</button>
+            <button class="ai-pill" data-prompt="What is my current RPO?">📊 Current RPO?</button>
+            <button class="ai-pill" data-prompt="Which snapshots are safe after a ransomware incident?">🛡️ Ransomware safe snapshots?</button>
+            <button class="ai-pill" data-prompt="Did my last recovery drill pass?">🚀 Last drill pass?</button>
+            <button class="ai-pill" data-prompt="Which files failed integrity verification?">🔍 Failed integrity files?</button>
+            <button class="ai-pill" data-prompt="What should I recover first?">🎯 Recover first?</button>
             <button class="ai-pill" data-prompt="Are my backups encrypted?">🔐 Backups encrypted?</button>
             <button class="ai-pill" data-prompt="Is MFA enabled?">📱 MFA enabled?</button>
             <button class="ai-pill" data-prompt="Which snapshots are protected?">🔒 Protected snapshots</button>
-            <button class="ai-pill" data-prompt="When does a retention lock expire?">⏳ Lock expiry?</button>
             <button class="ai-pill" data-prompt="Has my audit trail been tampered with?">⛓️ Audit tampered?</button>
             <button class="ai-pill" data-prompt="Are my files safe to restore?">🛡️ Safe to restore?</button>
             <button class="ai-pill" data-prompt="What security improvements do I need?">💡 Security improvements</button>
             <button class="ai-pill" data-prompt="Show my last five backups.">⏳ Recent backups</button>
             <button class="ai-pill" data-prompt="Restore a file.">📥 Restore a file</button>
-            <button class="ai-pill" data-prompt="Verify my latest snapshot integrity.">🔍 Verify snapshot</button>
-            <button class="ai-pill" data-prompt="Lock snapshot with WORM immutable retention.">🔒 Lock snapshot</button>
         </div>
 
         <div id="ai-messages-container" class="ai-messages-container">
@@ -1043,6 +1163,58 @@ GCS_REGION=us-central1
             <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
                 <button class="btn btn-secondary btn-sm" onclick="document.getElementById('key-rotation-modal').style.display='none'">Cancel</button>
                 <button id="confirm-rotate-key-btn" class="btn btn-warning btn-sm">Confirm Key Rotation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drill Bit-Level Verification Report Modal -->
+    <div id="dr-report-modal" class="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:750px;width:92%;margin:auto;max-height:85vh;overflow-y:auto;background:var(--card-bg, #1e293b);padding:1.5rem;border-radius:10px;border:1px solid rgba(56,189,248,0.3);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1px solid var(--border-color);padding-bottom:0.5rem;">
+                <h3 id="dr-report-modal-title" style="margin:0;font-size:1.2rem;">🔬 Bit-Level Integrity Verification Report</h3>
+                <button class="btn-icon" onclick="document.getElementById('dr-report-modal').style.display='none'">✕</button>
+            </div>
+            <div id="dr-report-modal-body">
+                <!-- Dynamically populated by app.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Point-in-Time Restore & Difference Scrubber Modal -->
+    <div id="dr-pit-modal" class="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:750px;width:92%;margin:auto;max-height:85vh;overflow-y:auto;background:var(--card-bg, #1e293b);padding:1.5rem;border-radius:10px;border:1px solid var(--border-color);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1px solid var(--border-color);padding-bottom:0.5rem;">
+                <h3 style="margin:0;font-size:1.2rem;">🕒 Point-in-Time Historical Recovery</h3>
+                <button class="btn-icon" onclick="document.getElementById('dr-pit-modal').style.display='none'">✕</button>
+            </div>
+            <div id="dr-pit-modal-body">
+                <!-- Dynamically populated by app.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Ransomware Guided Recovery Wizard Modal -->
+    <div id="dr-ransomware-modal" class="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:700px;width:92%;margin:auto;max-height:85vh;overflow-y:auto;background:var(--card-bg, #1e293b);padding:1.5rem;border-radius:10px;border:1px solid #ef4444;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1px solid var(--border-color);padding-bottom:0.5rem;">
+                <h3 style="margin:0;font-size:1.2rem;color:#f87171;">🛡️ Guided Ransomware Disaster Recovery</h3>
+                <button class="btn-icon" onclick="document.getElementById('dr-ransomware-modal').style.display='none'">✕</button>
+            </div>
+            <div id="dr-ransomware-modal-body">
+                <!-- Dynamically populated by app.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Recovery Sandbox Inspector Modal -->
+    <div id="dr-sandbox-modal" class="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:750px;width:92%;margin:auto;max-height:85vh;overflow-y:auto;background:var(--card-bg, #1e293b);padding:1.5rem;border-radius:10px;border:1px solid #38bdf8;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1px solid var(--border-color);padding-bottom:0.5rem;">
+                <h3 style="margin:0;font-size:1.2rem;">🔍 Recovery Sandbox & Preview Inspector</h3>
+                <button class="btn-icon" onclick="document.getElementById('dr-sandbox-modal').style.display='none'">✕</button>
+            </div>
+            <div id="dr-sandbox-modal-body">
+                <!-- Dynamically populated by app.js -->
             </div>
         </div>
     </div>

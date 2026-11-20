@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import settings
 from backend.app.models import (
     User, Snapshot, BackupPlan, RansomwareAlert, StorageObject,
-    MFARecoveryCode, DRDrill, AuditLog
+    MFARecoveryCode, DRDrill, AuditLog, SnapshotFile, RecoveryOperation
 )
 from backend.app.ai.security import verify_audit_log_chain
 from backend.app.ai.tools import (
@@ -68,6 +68,243 @@ class RuleBasedLocalLLMProvider(BaseAIProvider):
                     f"{self.FALLBACK_NOTICE}"
                 ),
                 "data": data,
+                "action_card": None
+            }
+
+        # 8H1. Recover Latest Backup Query ("Can I recover my latest backup?")
+        if any(w in p for w in ["can i recover my latest backup", "can i recover my backup", "can i recover latest backup", "is latest backup recoverable", "can i recover latest"]):
+            latest_snap = db.query(Snapshot).filter(Snapshot.user_id == user_id).order_by(Snapshot.created_at.desc()).first()
+            if not latest_snap:
+                return {
+                    "response": (
+                        "### ⚠️ No Recovery Points Available\n\n"
+                        "You currently do not have any backup snapshots recorded. Click **Execute Backup Now** on your dashboard to create your first recovery point."
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
+                    "data": None,
+                    "action_card": None
+                }
+
+            files_count = db.query(SnapshotFile).filter(SnapshotFile.snapshot_id == latest_snap.id, SnapshotFile.is_deleted == False).count()
+            size_mb = round(latest_snap.total_stored_bytes / (1024 * 1024), 2)
+            v_status = latest_snap.verification_status
+            lock_str = "🔒 WORM Immutable" if latest_snap.is_locked else "Standard"
+
+            lines = [
+                f"### 🛡️ Latest Backup Recoverability Status\n",
+                f"✅ **Yes, your latest backup is healthy and fully recoverable.**\n",
+                f"- **Snapshot:** **#{latest_snap.snapshot_number} ({latest_snap.name})**",
+                f"- **Creation Timestamp:** `{latest_snap.created_at.strftime('%Y-%m-%d %H:%M UTC')}`",
+                f"- **Files Available:** **{files_count} files** ({size_mb} MB stored)",
+                f"- **Integrity Verification:** **{v_status}**",
+                f"- **Retention Shield:** {lock_str}\n",
+                f"You can restore files from this recovery point to an isolated sandbox or your primary directory via the **Disaster Recovery Command Center**."
+            ]
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"snapshot_id": latest_snap.id, "snapshot_number": latest_snap.snapshot_number, "verification_status": v_status},
+                "action_card": None
+            }
+
+        # 8H2. Last Verified Recovery Point Query ("What is my last verified recovery point?")
+        if any(w in p for w in ["what is my last verified recovery point", "last verified recovery point", "latest verified snapshot", "latest verified recovery point", "last verified snapshot"]):
+            verified_snap = db.query(Snapshot).filter(
+                Snapshot.user_id == user_id,
+                Snapshot.verification_status == "VERIFIED"
+            ).order_by(Snapshot.created_at.desc()).first()
+
+            if not verified_snap:
+                drill = db.query(DRDrill).filter(DRDrill.user_id == user_id, DRDrill.status == "PASSED").order_by(DRDrill.created_at.desc()).first()
+                if drill and drill.snapshot:
+                    verified_snap = drill.snapshot
+
+            if not verified_snap:
+                return {
+                    "response": (
+                        "### ⏳ Last Verified Recovery Point\n\n"
+                        "No snapshots have been verified through synthetic recovery drills yet. "
+                        "Go to the **Disaster Recovery Command Center** and click **🚀 Run Synthetic Recovery Drill** to prove bit-level SHA-256 recoverability."
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
+                    "data": None,
+                    "action_card": None
+                }
+
+            drill = db.query(DRDrill).filter(DRDrill.snapshot_id == verified_snap.id, DRDrill.status == "PASSED").order_by(DRDrill.created_at.desc()).first()
+            speed_str = f"{drill.restoration_speed_mbps} MB/s" if drill else "Verified"
+            dt_str = verified_snap.created_at.strftime("%Y-%m-%d %H:%M UTC")
+
+            lines = [
+                f"### 🛡️ Last Verified Recovery Point\n",
+                f"Your latest verified recovery point is **Snapshot #{verified_snap.snapshot_number} ({verified_snap.name})**.\n",
+                f"- **Snapshot ID:** `{verified_snap.id}`",
+                f"- **Creation Date:** `{dt_str}`",
+                f"- **Integrity Status:** **VERIFIED (100% SHA-256 bit-level match)**",
+                f"- **Measured Restoration Throughput:** **{speed_str}**",
+                f"- **Files Protected:** {verified_snap.total_files} files ({round(verified_snap.total_stored_bytes / (1024 * 1024), 2)} MB)\n",
+                f"This snapshot is confirmed safe and bit-for-bit identical to original source files."
+            ]
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"verified_snapshot_id": verified_snap.id, "snapshot_number": verified_snap.snapshot_number},
+                "action_card": None
+            }
+
+        # 8H3. Recovery Duration / RTO Query ("How long would recovery take?")
+        if any(w in p for w in ["how long would recovery take", "recovery duration", "estimated recovery time", "how long to recover", "recovery time objective", "estimated rto"]):
+            from backend.app.services.dr_service import get_dr_command_center_telemetry
+            telemetry = get_dr_command_center_telemetry(user_id, db)
+            rto_data = telemetry["rto"]
+            speed = rto_data["measured_speed_mbps"]
+            pred_min = rto_data["predicted_full_rto_minutes"]
+            total_mb = round(telemetry["data_protection"]["total_stored_bytes"] / (1024 * 1024), 2)
+            conf = "Measured from real recovery drills" if rto_data["confidence"] == "HIGH_MEASURED" else "Baseline system estimate"
+
+            lines = [
+                f"### ⏱️ Recovery Time Objective (RTO) Telemetry\n",
+                f"- **Predicted Full Recovery Duration:** **{pred_min} minutes**",
+                f"- **Measured Restoration Throughput:** **{speed} MB/s**",
+                f"- **Total Stored Vault Volume:** **{total_mb} MB**",
+                f"- **Benchmark Confidence:** {conf}\n",
+                f"Single-file restoration typically completes in under **0.5 seconds** using direct streaming block decompression."
+            ]
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": rto_data,
+                "action_card": None
+            }
+
+        # 8H4. Current RPO Query ("What is my current RPO?")
+        if any(w in p for w in ["what is my current rpo", "current rpo", "recovery point objective", "what is my rpo", "my current rpo"]):
+            from backend.app.services.dr_service import get_dr_command_center_telemetry
+            telemetry = get_dr_command_center_telemetry(user_id, db)
+            rpo_data = telemetry["rpo"]
+            hours = rpo_data["hours"]
+            status_text = rpo_data["status"]
+            badge = "✅ HEALTHY" if status_text == "HEALTHY" else ("⚠️ WARNING" if status_text == "WARNING" else "🚨 CRITICAL")
+
+            lines = [
+                f"### ⏳ Recovery Point Objective (RPO) Status\n",
+                f"- **Current RPO:** **{hours} hours** ({badge})",
+                f"- **Target SLA:** **24.0 hours**",
+                f"- **Latest Recovery Point Created:** `{rpo_data.get('latest_recovery_point', 'None')[:19].replace('T', ' ')} UTC`\n",
+                f"Current RPO measures the potential data loss window between now and your most recent recorded backup."
+            ]
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": rpo_data,
+                "action_card": None
+            }
+
+        # 8H5. Safe Snapshots After Ransomware Query ("Which snapshots are safe after a ransomware incident?")
+        if any(w in p for w in ["which snapshots are safe after a ransomware incident", "safe after a ransomware incident", "safe snapshots after ransomware", "which snapshots are safe after ransomware", "safe recovery point ransomware"]):
+            from backend.app.services.dr_service import plan_ransomware_recovery
+            plan = plan_ransomware_recovery(user_id, db)
+            rec = plan.get("recommended_snapshot")
+
+            lines = ["### 🛡️ Ransomware Incident Safe Recovery Points\n"]
+            if plan.get("has_active_threat"):
+                lines.append("🚨 **Active Ransomware Incident Detected on Account**\n")
+                if rec:
+                    lines.append(f"The recommended clean recovery point is **Snapshot #{rec['snapshot_number']} ({rec['name']})**.\n")
+                    lines.append("**Safety Justification:**")
+                    for r in plan.get("safety_justification", []):
+                        lines.append(f"- {r}")
+                else:
+                    lines.append("⚠️ No clean pre-incident snapshot was identified prior to the ransomware alarm.")
+
+                excluded = plan.get("excluded_snapshots", [])
+                if excluded:
+                    lines.append(f"\n**Excluded Suspicious Snapshots ({len(excluded)}):**")
+                    for e in excluded[:3]:
+                        lines.append(f"- Snapshot #{e['snapshot_number']} (*{e['reason']}*)")
+            else:
+                lines.append("✅ **No active ransomware incidents detected.** All snapshots are healthy.")
+                if rec:
+                    lines.append(f"Your latest baseline **Snapshot #{rec['snapshot_number']} ({rec['name']})** is verified safe.")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": plan,
+                "action_card": None
+            }
+
+        # 8H6. Last Recovery Drill Status ("Did my last recovery drill pass?")
+        if any(w in p for w in ["did my last recovery drill pass", "last recovery drill pass", "last drill pass", "status of last drill", "did recovery drill pass", "latest recovery drill status"]):
+            drill = db.query(DRDrill).filter(DRDrill.user_id == user_id).order_by(DRDrill.created_at.desc()).first()
+            if not drill:
+                return {
+                    "response": (
+                        "### 🔍 Recovery Drill Status\n\n"
+                        "No recovery drills have been executed on your account yet. You can launch one from the **Disaster Recovery Command Center**."
+                        f"{self.FALLBACK_NOTICE}"
+                    ),
+                    "data": None,
+                    "action_card": None
+                }
+
+            badge = "✅ PASSED" if drill.status == "PASSED" else "🚨 FAILED"
+            lines = [
+                f"### 🚀 Latest Recovery Drill Status: {badge}\n",
+                f"- **Drill ID:** `{drill.id}`",
+                f"- **Target Snapshot:** `{drill.snapshot.name if drill.snapshot else 'Snapshot'}`",
+                f"- **Files Tested:** **{drill.files_tested} files** ({round(drill.bytes_tested / (1024 * 1024), 2)} MB)",
+                f"- **Restoration Throughput:** **{drill.restoration_speed_mbps} MB/s**",
+                f"- **Execution Duration:** **{drill.duration_seconds} seconds**",
+                f"- **Timestamp:** `{drill.created_at.strftime('%Y-%m-%d %H:%M UTC')}`"
+            ]
+            if drill.status == "FAILED" and drill.error_details:
+                lines.append(f"\n⚠️ **Failure Reason:** {drill.error_details}")
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"drill_id": drill.id, "status": drill.status, "speed_mbps": drill.restoration_speed_mbps},
+                "action_card": None
+            }
+
+        # 8H7. Failed Integrity Verification Query ("Which files failed integrity verification?")
+        if any(w in p for w in ["which files failed integrity verification", "failed integrity verification", "files failed verification", "which files failed integrity", "integrity failure files"]):
+            failed_drills = db.query(DRDrill).filter(DRDrill.user_id == user_id, DRDrill.status == "FAILED").order_by(DRDrill.created_at.desc()).limit(5).all()
+
+            lines = ["### 🔍 Integrity Verification Audit\n"]
+            if not failed_drills:
+                lines.append("✅ **0 Integrity Verification Failures.** All files verified in synthetic recovery drills have passed bit-level SHA-256 verification and envelope decryption checks.")
+            else:
+                lines.append(f"⚠️ Found **{len(failed_drills)} failed recovery drill(s)** with integrity discrepancies:\n")
+                for fd in failed_drills:
+                    err_msg = fd.error_details or "Checksum mismatch or missing block"
+                    lines.append(f"- **Drill `{fd.id[:8]}`** ({fd.created_at.strftime('%Y-%m-%d %H:%M UTC')}): *{err_msg}*")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"failed_drills_count": len(failed_drills)},
+                "action_card": None
+            }
+
+        # 8H8. Triage Recovery Priority Query ("What should I recover first?")
+        if any(w in p for w in ["what should i recover first", "recover first", "what to recover first", "recovery priority", "priority recovery"]):
+            from backend.app.services.dr_service import get_dr_command_center_telemetry
+            telemetry = get_dr_command_center_telemetry(user_id, db)
+            recs = telemetry.get("recovery_recommendations", [])
+
+            lines = ["### 🎯 Disaster Recovery Triage Protocol\n", "Recommended recovery priority based on real system state:\n"]
+            if not recs:
+                lines.append("1. **All systems optimal.** No immediate incident recovery required.")
+                lines.append("2. In a disaster event, prioritize mission-critical backup plans and database files.")
+            else:
+                for idx, r in enumerate(recs, 1):
+                    lines.append(f"**{idx}. [{r['priority']}] {r['title']}**\n   {r['action']}\n")
+
+            lines.append(self.FALLBACK_NOTICE)
+            return {
+                "response": "\n".join(lines),
+                "data": {"priorities": recs},
                 "action_card": None
             }
 

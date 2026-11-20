@@ -163,12 +163,60 @@ class CloudVaultAPI {
         return await this.request("/api/v1/dr/metrics");
     }
 
+    async getDRCommandCenter() {
+        return await this.request("/api/v1/dr/command-center");
+    }
+
     async simulateDRDrill(snapshotId = null) {
         return await this.request("/api/v1/dr/simulate-drill", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ snapshot_id: snapshotId })
         });
+    }
+
+    async runAdvancedDRDrill(payload = {}) {
+        return await this.request("/api/v1/dr/advanced-drill", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async getDRDrillReport(drillId) {
+        return await this.request(`/api/v1/dr/drills/${drillId}/report`);
+    }
+
+    async getPointInTimePreview(snapshotId, destinationDir = "") {
+        let url = `/api/v1/dr/point-in-time/preview?snapshot_id=${encodeURIComponent(snapshotId)}`;
+        if (destinationDir) {
+            url += `&destination_dir=${encodeURIComponent(destinationDir)}`;
+        }
+        return await this.request(url);
+    }
+
+    async getRansomwareRecoveryPlan() {
+        return await this.request("/api/v1/dr/ransomware-recovery/plan");
+    }
+
+    async executeRansomwareRecovery(payload = {}) {
+        return await this.request("/api/v1/dr/ransomware-recovery/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async runRecoverySandboxPreview(payload = {}) {
+        return await this.request("/api/v1/dr/sandbox/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async getRecoveryOperations(limit = 20) {
+        return await this.request(`/api/v1/dr/operations?limit=${limit}`);
     }
 
     async getDRHistory(limit = 20) {

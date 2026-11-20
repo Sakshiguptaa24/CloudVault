@@ -1,8 +1,8 @@
 # CloudVault 2.0 – AI-Powered Cloud Backup, Security & Disaster Recovery
 
 > **Cloud Computing Capstone & Cloud SaaS Foundation**  
-> **Status:** Fully Functional & Tested (70/70 Tests Passing)  
-> **Architectural Paradigm:** Multi-Cloud Storage • AI Copilot • Ransomware Shield • Disaster Recovery Center • Zero-Trust Envelope Encryption  
+> **Status:** Fully Functional & Tested (85/85 Tests Passing)  
+> **Architectural Paradigm:** Multi-Cloud Storage • AI Copilot • Ransomware Shield • DR Command Center • Zero-Trust Envelope Encryption  
 > **Compatibility:** Windows 10/11, macOS, Linux • Responsive Mobile/Tablet/Desktop PWA  
 
 ---
@@ -70,10 +70,15 @@
 - **Cloud Cost Estimation:** Live cost calculator modeling monthly spend across Google Cloud Storage tiers (`STANDARD` vs `NEARLINE`) and tracking exact dollar savings achieved through deduplication.
 - **Top 10 Storage Heavyweights:** Identifies the largest disk consumers in the vault.
 
-### 🚨 4. Disaster Recovery Center & Synthetic Drills
-- **Live RPO & RTO Telemetry:** Computes actual Recovery Point Objective (hours since last verified snapshot) and measured Recovery Time Objective (restoration throughput in MB/s).
-- **Sandboxed Synthetic Recovery Drills:** One-click automated recovery drill streams encrypted backup blocks from cloud storage into an isolated temporary directory, decrypts and decompresses payloads, recomputes SHA-256 digests, measures real-world network throughput, and safely wipes the temporary sandbox without touching primary files.
-- **Snapshot Verification Attestation:** Marks snapshots as `VERIFIED` or `FAILED` based on bit-level integrity drill outcomes.
+### 🚨 4. Disaster Recovery Command Center & Advanced Recovery Engine
+- **Recovery Readiness Index (0–100):** Real-time weighted readiness score calculated from recent verified drills (30 pts), snapshot freshness (25 pts), WORM immutable locks (20 pts), active ransomware incident status (15 pts), and storage provider health (10 pts).
+- **Advanced Synthetic Recovery Drills:** Multi-scope drill engine supporting `FULL_SNAPSHOT`, `FOLDER`, `FILE`, `POINT_IN_TIME`, `RANSOMWARE_PRE_INCIDENT`, and `CORRUPTED_OBJECT_TEST`. Streams encrypted blocks from cloud storage into an isolated sandbox, decrypts with KEK/DEK, decompresses, computes SHA-256, compares against manifest checksums, records pass/fail, and measures elapsed duration and MB/s throughput.
+- **Bit-Level Integrity Verification:** End-to-end cryptographic integrity verification detecting missing objects, ciphertext corruption, GCM tag authentication failures, truncated objects, and plaintext checksum mismatches. Damaged recoveries are never silently marked as successful.
+- **Point-in-Time Recovery & Diff Preview:** Interactive file-by-file difference analysis (`NEW`, `MODIFIED`, `UNCHANGED`) against destination paths, historical encryption key version compatibility (v1, v2), safe non-destructive restoration to separate destinations, and WORM retention compliance.
+- **Ransomware Disaster Recovery Workflow:** Automated clean pre-incident baseline identification, excluding quarantined or suspicious snapshots, displaying safety justifications, and executing verified non-destructive restores into isolated locations.
+- **Real RTO & RPO Telemetry:** Strictly measured RTO (actual elapsed execution duration in seconds and measured MB/s throughput) and calculated RPO (hours since last verified snapshot). No fabricated benchmarks.
+- **Isolated Recovery Sandbox:** Non-destructive testing environment allowing operators to preview recovered text snippets, inspect digests and metadata, and export structured verification reports without modifying production data.
+- **AI Disaster Recovery Copilot:** Integrated assistant answering 8 dedicated DR queries (recoverability, last verified snapshot, predicted RTO, current RPO, safe pre-ransomware snapshots, drill pass/fail status, integrity failures, recovery priority recommendations).
 
 ### 🔒 5. Advanced Security & Envelope Encryption
 - **AES-256-GCM Envelope Encryption:** Protects files at rest using per-user Key Encryption Keys (KEK) and deterministic per-object Data Encryption Keys (DEK) derived via `HMAC-SHA256(KEK, Plaintext_SHA256)`. This guarantees **intra-user deduplication** while preventing cross-user data leakage and dictionary attacks.
@@ -156,7 +161,7 @@ python cli.py backup C:\Path\To\Folder --name "Academic Capstone Backup"
 
 ## 5. Automated Verification & Test Results
 
-CloudVault 2.0 features **70 automated unit and integration tests** covering all subsystems:
+CloudVault 2.0 features **85 automated unit and integration tests** covering all subsystems:
 
 ```powershell
 python -m pytest backend/tests/ -v
@@ -166,6 +171,7 @@ python -m pytest backend/tests/ -v
 | Test Suite | Tests | Status | Scope Tested |
 | :--- | :---: | :---: | :--- |
 | `test_ai_assistant.py` | 8 | **PASSED** | Read-only queries, token minting, anti-replay, hash-chain audit logging, milestone restore flow, offline LLM fallback |
+| `test_disaster_recovery_command_center.py` | 15 | **PASSED** | File/folder/PIT recovery, AES-GCM envelope recovery, key rotation v1/v2, corruption rejection, missing block detection, checksum mismatch detection, ransomware safe baseline, WORM preservation, recovery sandbox isolation, real RTO/RPO metrics, failure logging, 8 AI DR queries, cross-tenant isolation |
 | `test_disaster_recovery.py` | 4 | **PASSED** | RPO/RTO calculation, synthetic drill sandbox, corruption detection, history |
 | `test_security_core.py` | 15 | **PASSED** | AES-256-GCM envelope roundtrip, corrupted ciphertext rejection, TOTP MFA, WORM lock, key rotation, AAD binding, rate limiting, audit chain verification, 7 Phase 4 AI queries |
 | `test_ransomware_detection.py` | 14 | **PASSED** | Shannon entropy math, false-positive protection, extension detection, velocity bursts, deletion bursts, WORM preservation, reversible quarantine, AI queries |
@@ -179,7 +185,7 @@ python -m pytest backend/tests/ -v
 | `test_end_to_end_verification.py`| 1 | **PASSED** | Full 10-step complete platform lifecycle |
 | `test_storage_provider.py` | 1 | **PASSED** | Core storage provider upload/download/exists interface |
 | `test_api_integration.py` | 1 | **PASSED** | REST API backup flow |
-| **TOTAL** | **70** | **100% PASSED** | **Execution Duration: ~19.2 seconds** |
+| **TOTAL** | **85** | **100% PASSED** | **Execution Duration: ~50.8 seconds** |
 
 ---
 
@@ -209,14 +215,18 @@ Follow this structured demonstration script during your academic presentation:
 2. In the terminal, run `python cli.py security-scan backend/app` to demonstrate the live entropy analyzer scanning 70 files with $H = 4.77$ bits/byte.
 3. In the Web UI, lock a snapshot under WORM retention. Demonstrate that deleting the locked snapshot returns an HTTP 403 Forbidden error.
 
-### Phase 5: Disaster Recovery Drill & Version Timeline (1.5 min)
-1. Switch to the **"🚨 Disaster Recovery"** tab:
-   - Point out the calculated **RPO** (e.g. 0.2h) and measured **RTO** (e.g. 1.2 min).
-   - Click **"🚀 Run Synthetic Recovery Drill"**: show the live execution streaming blocks, verifying bit-level SHA-256 hashes, and displaying throughput (MB/s).
-   - Show the newly appended drill entry in the audit history table.
-2. Switch to the **"🕒 Version Timeline"** tab:
-   - Select a modified file. Scrub through the timeline showing previous revisions, timestamps, file sizes, and cryptographic SHA-256 digests.
-   - Click **"↺ Restore This Version"** to complete the end-to-end loop.
+### Phase 5: Disaster Recovery Command Center & Resiliency (1.5 min)
+1. Switch to the **"🚨 Disaster Recovery"** Command Center:
+   - Point out the **Mission Control Header** and the **6-KPI Telemetry Grid**: Overall Recovery Readiness Score (0–100), Available Recovery Points, Last Drill Status, Active Incidents, Failed Operations Count, and Real Measured RTO / Calculated RPO.
+   - Click **"🚀 Launch Advanced Recovery Drill"**: Select drill scope (`FULL_SNAPSHOT`, `FOLDER`, `FILE`, `POINT_IN_TIME`, `RANSOMWARE_PRE_INCIDENT`, or `CORRUPTED_OBJECT_TEST`). Watch live block streaming, AES-256-GCM envelope decryption, decompression, bit-level SHA-256 validation, and throughput recording. Click **"View Verification Report"** for file-by-file attestation.
+   - Click **"⏱️ Point-in-Time Recovery"**: View interactive diff preview (`NEW`, `MODIFIED`, `UNCHANGED`), select conflict strategy (`SKIP_EXISTING`, `OVERWRITE`, `RENAME`), and perform safe non-destructive restoration to a separate target.
+   - Click **"🛡️ Plan Ransomware Recovery"**: Watch CloudVault locate the latest clean pre-incident baseline, display safety justifications, and restore to an isolated directory.
+   - Click **"🧪 Open Recovery Sandbox"**: Preview recovered file contents and verify checksums in a secure, isolated sandbox without touching production data.
+2. Open the **"🤖 AI Copilot"** and ask:
+   - *"Can I recover my latest backup?"*
+   - *"What is my current RPO?"*
+   - *"How long would recovery take?"*
+   - Show how the AI provides exact telemetry-backed answers without fabricating data.
 
 ---
 

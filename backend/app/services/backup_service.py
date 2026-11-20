@@ -192,6 +192,11 @@ def execute_backup_plan(
     if not plan:
         raise ValueError(f"Backup plan not found: {plan_id}")
 
+    if isinstance(user, str):
+        user = db.query(User).filter(User.id == user).first()
+        if not user:
+            raise ValueError("User not found for backup execution")
+
     import json
     try:
         source_dirs = json.loads(plan.source_directories)
