@@ -27,12 +27,17 @@ origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
 if not origins:
     origins = ["*"]
 
+# In production or with wildcard, credentials cannot be enabled with '*'
+cors_credentials = True
+if "*" in origins:
+    cors_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=cors_credentials,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "Origin"],
 )
 
 # Security Headers Middleware
@@ -60,6 +65,9 @@ app.include_router(storage_api.router)
 # Lifecycle events
 @app.on_event("startup")
 def on_startup():
+    # Enforce production security & durability rules if in production mode
+    settings.validate_production_rules()
+
     # Verify storage provider
     storage = get_storage_provider()
     # Start background scheduler only when not running automated tests

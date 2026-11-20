@@ -1,8 +1,9 @@
 import os
 import streamlit as st
-from streamlit_app.api_client import CloudVaultClient
+from streamlit_app.api_client import CloudVaultClient, AuthenticationExpiredError
 from streamlit_app.session import (
-    init_session, get_token, get_user, is_authenticated, logout, navigate_to
+    init_session, get_token, get_user, is_authenticated, logout, navigate_to,
+    handle_auth_expired
 )
 from streamlit_app.styles import apply_custom_css
 from streamlit_app.views.landing import render_landing
@@ -114,32 +115,35 @@ def main():
         return
 
     # Render Active Page
-    if page == "Landing":
-        render_landing(client)
-    elif page == "Register":
-        render_register(client)
-    elif page == "Login":
-        render_login(client)
-    elif page == "Dashboard":
-        render_dashboard(client)
-    elif page == "Upload & Backup":
-        render_upload_backup(client)
-    elif page == "Backup Plans":
-        render_backup_plans(client)
-    elif page == "Snapshots":
-        render_snapshots(client)
-    elif page == "Restore & Recovery":
-        render_restore_recovery(client)
-    elif page == "Security Center":
-        render_security_center(client)
-    elif page == "AI Assistant":
-        render_ai_assistant(client)
-    elif page == "Analytics":
-        render_analytics(client)
-    elif page == "Settings":
-        render_settings(client)
-    else:
-        render_landing(client)
+    try:
+        if page == "Landing":
+            render_landing(client)
+        elif page == "Register":
+            render_register(client)
+        elif page == "Login":
+            render_login(client)
+        elif page == "Dashboard":
+            render_dashboard(client)
+        elif page == "Upload & Backup":
+            render_upload_backup(client)
+        elif page == "Backup Plans":
+            render_backup_plans(client)
+        elif page == "Snapshots":
+            render_snapshots(client)
+        elif page == "Restore & Recovery":
+            render_restore_recovery(client)
+        elif page == "Security Center":
+            render_security_center(client)
+        elif page == "AI Assistant":
+            render_ai_assistant(client)
+        elif page == "Analytics":
+            render_analytics(client)
+        elif page == "Settings":
+            render_settings(client)
+        else:
+            render_landing(client)
+    except AuthenticationExpiredError as e:
+        handle_auth_expired(f"Session expired ({e.detail}). Please sign in again.")
 
 if __name__ == "__main__":
     main()

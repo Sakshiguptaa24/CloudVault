@@ -55,7 +55,25 @@ def logout():
         {"role": "assistant", "content": "👋 Hello! I am your CloudVault AI Disaster Recovery & Security Copilot. How can I help you today?"}
     ]
     st.session_state["pending_action_card"] = None
+    st.session_state["auth_expired_message"] = None
     st.rerun()
+
+
+def handle_auth_expired(message: str = "Your session has expired. Please sign in again."):
+    """
+    Clear credentials, set an expiration flash notice, and navigate to Login.
+    Guarded against infinite redirect loops if already on the Login page.
+    """
+    st.session_state["access_token"] = None
+    st.session_state["user"] = None
+    st.session_state["login_mfa_required"] = False
+    st.session_state["temp_login_email"] = ""
+    st.session_state["temp_login_password"] = ""
+    st.session_state["pending_action_card"] = None
+    st.session_state["auth_expired_message"] = message
+    if st.session_state.get("current_page") != "Login":
+        st.session_state["current_page"] = "Login"
+        st.rerun()
 
 
 def navigate_to(page_name: str):

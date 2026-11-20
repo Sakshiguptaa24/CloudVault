@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,6 +12,9 @@ from backend.app.auth import verify_password, get_password_hash, create_access_t
 from backend.app.services.crypto_service import (
     generate_totp_secret, get_totp_uri, verify_totp_code,
     generate_recovery_codes, hash_recovery_code
+)
+from backend.app.services.rate_limiter import (
+    login_rate_limiter, register_rate_limiter, get_client_ip
 )
 from backend.app.ai.security import record_audit_log
 
@@ -30,7 +33,14 @@ class MFADisableRequest(BaseModel):
     code: str
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(user_in: UserRegister, db: Session = Depends(get_db)):
+def register(
+    user_in: UserRegister,
+    db: Session = Depends(get_db),
+    request: Request = None
+):
+    client_ip = get_client_ip(request) if request else "127.0.0.1"
+    register_rate_limiter.check_and_record(client_ip)
+
     existing = db.query(User).filter(User.email == user_in.email.lower()).first()
     if existing:
         raise HTTPException(
@@ -64,9 +74,17 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
     }
 
 @router.post("/login", response_model=TokenResponse)
-def login(user_in: UserLogin, db: Session = Depends(get_db)):
+def login(
+    user_in: UserLogin,
+    db: Session = Depends(get_db),
+    request: Request = None
+):
+    client_ip = get_client_ip(request) if request else "127.0.0.1"
+    login_rate_limiter.check_rate_limit(user_in.email, client_ip)
+
     user = db.query(User).filter(User.email == user_in.email.lower()).first()
     if not user or not verify_password(user_in.password, user.password_hash):
+        login_rate_limiter.record_failure(user_in.email, client_ip)
         if user:
             record_audit_log(
                 user_id=user.id,
@@ -179,6 +197,9 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
         user.mfa_locked_until = None
         db.commit()
 
+    # Reset rate limit failures on success
+    login_rate_limiter.reset_failures(user.email, client_ip)
+
     record_audit_log(
         user_id=user.id,
         event_type="AUTH_LOGIN_SUCCESS",
@@ -196,13 +217,21 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
     }
 
 @router.post("/token")
-def login_for_docs(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login_for_docs(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+    request: Request = None
+):
+    client_ip = get_client_ip(request) if request else "127.0.0.1"
+    login_rate_limiter.check_rate_limit(form_data.username, client_ip)
     user = db.query(User).filter(User.email == form_data.username.lower()).first()
     if not user or not verify_password(form_data.password, user.password_hash):
+        login_rate_limiter.record_failure(form_data.username, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"
         )
+    login_rate_limiter.reset_failures(form_data.username, client_ip)
     token = create_access_token({"sub": user.id, "email": user.email})
     return {"access_token": token, "token_type": "bearer"}
 

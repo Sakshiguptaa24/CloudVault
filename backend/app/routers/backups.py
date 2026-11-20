@@ -1,10 +1,12 @@
 import json
+import secrets
 import shutil
 import tempfile
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
+from backend.app.config import settings
 from backend.app.database import get_db
 from backend.app.models import User, BackupPlan, BackupJob, Snapshot, StorageObject
 from backend.app.schemas import (
@@ -16,6 +18,7 @@ from backend.app.storage import get_storage_provider
 from backend.app.services.backup_service import (
     execute_backup_plan, calculate_bytes_sha256, compress_payload
 )
+from backend.app.services.crypto_service import envelope_encrypt_payload
 
 router = APIRouter(prefix="/api/v1/backups", tags=["Backups"])
 
@@ -103,8 +106,20 @@ def upload_file_direct(
 
     content = file.file.read()
     file_size = len(content)
+
+    max_upload_size = getattr(settings, "MAX_UPLOAD_SIZE_BYTES", 500 * 1024 * 1024)
+    if file_size > max_upload_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Uploaded file exceeds maximum allowed limit of {max_upload_size // (1024*1024)} MB."
+        )
+
+    # Sanitize relative path to prevent directory traversal
+    raw_rel_path = relative_path or file.filename or "uploaded_file"
+    clean_parts = [p for p in Path(raw_rel_path).parts if p not in ("..", ".", "/", "\\", "")]
+    file_rel_path = "/".join(clean_parts) if clean_parts else Path(file.filename or "file").name
+
     sha256 = calculate_bytes_sha256(content)
-    file_rel_path = relative_path or file.filename
 
     storage = get_storage_provider()
 
@@ -120,22 +135,62 @@ def upload_file_direct(
         storage_obj = existing
     else:
         compressed = compress_payload(content, plan.compression_algo)
+        compressed_size = len(compressed)
+
+        is_enc_enabled = getattr(plan, "encryption_enabled", True)
+        if is_enc_enabled:
+            if not current_user.encryption_salt:
+                current_user.encryption_salt = secrets.token_hex(16)
+                db.flush()
+            key_ver = getattr(current_user, "current_key_version", 1) or 1
+            aad_ctx = f"{current_user.id}:{sha256}:{key_ver}"
+            enc_res = envelope_encrypt_payload(
+                plaintext=compressed,
+                user_id=current_user.id,
+                salt=current_user.encryption_salt,
+                key_version=key_ver,
+                aad_context=aad_ctx
+            )
+            payload_to_upload = enc_res["ciphertext"]
+            is_encrypted = True
+            encryption_nonce = enc_res["payload_nonce"].hex()
+            encrypted_dek = enc_res["encrypted_dek"].hex()
+            dek_nonce = enc_res["dek_nonce"].hex()
+            stored_bytes_count = len(payload_to_upload)
+        else:
+            payload_to_upload = compressed
+            is_encrypted = False
+            encryption_nonce = None
+            encrypted_dek = None
+            dek_nonce = None
+            key_ver = 1
+            aad_ctx = None
+            stored_bytes_count = compressed_size
+
         storage_path = f"objects/{sha256}"
-        storage.upload_bytes(compressed, storage_path)
+        storage.upload_bytes(payload_to_upload, storage_path)
 
         storage_obj = StorageObject(
             user_id=current_user.id,
             sha256_hash=sha256,
             original_size=file_size,
-            compressed_size=len(compressed),
+            compressed_size=stored_bytes_count,
             compression_algo=plan.compression_algo,
+            is_encrypted=is_encrypted,
+            encryption_algo="AES-256-GCM" if is_encrypted else "NONE",
+            encryption_nonce=encryption_nonce,
+            encrypted_dek=encrypted_dek,
+            dek_nonce=dek_nonce,
+            key_version=key_ver,
+            aad_tag=aad_ctx,
             storage_provider=storage.get_storage_name(),
             storage_path=storage_path,
+            storage_class="STANDARD",
             ref_count=1
         )
         db.add(storage_obj)
         db.flush()
-        current_user.used_bytes += len(compressed)
+        current_user.used_bytes += stored_bytes_count
         was_uploaded = True
 
     # Commit as a snapshot
@@ -221,7 +276,8 @@ def get_storage_stats(
 
     total_uncompressed = sum(s.total_uncompressed_bytes for s in snapshots)
     total_stored = current_user.used_bytes
-    bytes_saved = max(0, total_uncompressed - total_stored)
+    dedup_saved = sum(j.bytes_deduplicated for j in jobs)
+    bytes_saved = max(dedup_saved, max(0, total_uncompressed - total_stored))
     savings_pct = (bytes_saved / total_uncompressed * 100) if total_uncompressed > 0 else 0.0
 
     return {

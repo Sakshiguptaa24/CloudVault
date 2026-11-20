@@ -17,16 +17,43 @@ def render_landing(client: CloudVaultClient):
     # Check live backend connection
     try:
         health = client.health_check()
-        storage_name = health.get("storage_provider", "mock").upper()
-        version = health.get("version", "2.0.0")
-        st.markdown(f"""
-        <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 30px;">
-            <span class="badge badge-success">● Backend Online (v{version})</span>
-            <span class="badge badge-info">Storage Engine: {storage_name}</span>
-            <span class="badge badge-success">Zero-Trust AES-256-GCM</span>
-        </div>
-        """, unsafe_allow_html=True)
-    except Exception as e:
+        h_status = health.get("status")
+
+        if h_status in ("healthy", "ok"):
+            storage_name = health.get("storage_provider", "mock").upper()
+            version = health.get("version", "2.0.0")
+            st.markdown(f"""
+            <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 30px;">
+                <span class="badge badge-success">● Backend Online (v{version})</span>
+                <span class="badge badge-info">Storage Engine: {storage_name}</span>
+                <span class="badge badge-success">Zero-Trust AES-256-GCM</span>
+            </div>
+            """, unsafe_allow_html=True)
+        elif h_status == "cold_start":
+            st.markdown("""
+            <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 20px;">
+                <span class="badge badge-warning">⏳ Backend Spinning Up (Serverless Cold Start)</span>
+            </div>
+            """, unsafe_allow_html=True)
+            st.info("ℹ️ CloudVault API server is currently waking up from an idle state on serverless infrastructure. This typically takes 15–30 seconds. Please wait a moment or click below to refresh.")
+            if st.button("🔄 Refresh Connection Status", key="btn_cold_refresh"):
+                client.health_check(force=True)
+                st.rerun()
+        elif h_status == "slow_response":
+            st.markdown("""
+            <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 30px;">
+                <span class="badge badge-warning">⚠️ High Latency / Slow Response</span>
+                <span class="badge badge-info">API Active</span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 30px;">
+                <span class="badge badge-danger">● Backend Disconnected</span>
+                <span class="badge badge-warning">Waiting for API server</span>
+            </div>
+            """, unsafe_allow_html=True)
+    except Exception:
         st.markdown("""
         <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 30px;">
             <span class="badge badge-danger">● Backend Disconnected</span>

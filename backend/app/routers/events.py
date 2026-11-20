@@ -2,13 +2,13 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db, SessionLocal
 from backend.app.models import User, BackupJob, RansomwareAlert, DRDrill
-from backend.app.auth import get_current_user
+from backend.app.auth import get_current_user, verify_token
 
 router = APIRouter(prefix="/api/v1/events", tags=["Real-Time Notifications & SSE"])
 
@@ -92,35 +92,50 @@ async def event_generator(user_id: str, request: Request):
         await asyncio.sleep(3)
 
 @router.get("/stream")
-async def sse_events_stream(
+def sse_events_stream(
     request: Request,
     token: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """
-    Server-Sent Events (SSE) stream endpoint for real-time notifications.
-    Supports token passed via query param (for EventSource) or Bearer header.
-    """
-    user = None
-    if token:
-        from backend.app.auth import verify_token
-        email = verify_token(token)
-        if email:
-            user = db.query(User).filter(User.email == email).first()
-
-    if not user:
-        # Fallback to Authorization header if present
+    raw_token = token
+    if not raw_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            from backend.app.auth import verify_token
-            email = verify_token(auth_header.split(" ")[1])
-            if email:
-                user = db.query(User).filter(User.email == email).first()
+            raw_token = auth_header.split(" ", 1)[1].strip()
 
-    user_id = user.id if user else "anonymous"
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required for real-time event stream",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    payload = verify_token(raw_token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing subject identity",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account not found or deactivated",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
     return StreamingResponse(
-        event_generator(user_id, request),
+        event_generator(user.id, request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

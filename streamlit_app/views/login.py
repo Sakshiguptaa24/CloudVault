@@ -8,6 +8,10 @@ def render_login(client: CloudVaultClient):
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
+        auth_msg = st.session_state.pop("auth_expired_message", None)
+        if auth_msg:
+            st.warning(f"⚠️ {auth_msg}")
+
         mfa_required = st.session_state.get("login_mfa_required", False)
 
         if not mfa_required:

@@ -1,237 +1,223 @@
-import sqlite3
-import os
+"""
+CloudVault 2.0 Engine-Agnostic Migration Engine
+Supports SQLite (local development) and PostgreSQL (production deployment).
+Idempotent, non-destructive, with schema version tracking.
+"""
+
 import sys
 from pathlib import Path
+from datetime import datetime
+from typing import Optional, Union, List, Dict, Any
 
-# Add project root to sys.path
+from sqlalchemy import create_engine, inspect, text, Table, Column, String, DateTime, MetaData
+from sqlalchemy.engine import Engine
+
+# Ensure project root is in sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 from backend.app.config import BASE_DIR, settings
+from backend.app.database import Base, engine as default_engine
+import backend.app.models  # Ensure all SQLAlchemy models are registered
 
-def run_migrations(db_path: str = None):
+
+MIGRATION_VERSION = "2026_03_01_phase7_hardening"
+
+# Column definitions for existing tables that may have been created in earlier phases.
+# Formatted to be ANSI SQL compliant across both SQLite and PostgreSQL.
+TABLE_COLUMN_SPECS: Dict[str, List[Dict[str, Any]]] = {
+    "users": [
+        {"name": "mfa_secret", "sqlite": "VARCHAR(64)", "postgres": "VARCHAR(64)"},
+        {"name": "mfa_enabled", "sqlite": "BOOLEAN DEFAULT 0", "postgres": "BOOLEAN DEFAULT FALSE"},
+        {"name": "encryption_salt", "sqlite": "VARCHAR(64)", "postgres": "VARCHAR(64)"},
+        {"name": "current_key_version", "sqlite": "INTEGER DEFAULT 1", "postgres": "INTEGER DEFAULT 1"},
+        {"name": "mfa_failed_attempts", "sqlite": "INTEGER DEFAULT 0", "postgres": "INTEGER DEFAULT 0"},
+        {"name": "mfa_locked_until", "sqlite": "DATETIME", "postgres": "TIMESTAMP WITH TIME ZONE"},
+    ],
+    "backup_plans": [
+        {"name": "encryption_enabled", "sqlite": "BOOLEAN DEFAULT 1", "postgres": "BOOLEAN DEFAULT TRUE"},
+        {"name": "immutable_lock_days", "sqlite": "INTEGER DEFAULT 0", "postgres": "INTEGER DEFAULT 0"},
+    ],
+    "snapshots": [
+        {"name": "is_immutable", "sqlite": "BOOLEAN DEFAULT 0", "postgres": "BOOLEAN DEFAULT FALSE"},
+        {"name": "lock_until", "sqlite": "DATETIME", "postgres": "TIMESTAMP WITH TIME ZONE"},
+        {"name": "verification_status", "sqlite": "VARCHAR(20) DEFAULT 'UNVERIFIED'", "postgres": "VARCHAR(20) DEFAULT 'UNVERIFIED'"},
+        {"name": "verified_at", "sqlite": "DATETIME", "postgres": "TIMESTAMP WITH TIME ZONE"},
+        {"name": "retention_mode", "sqlite": "VARCHAR(30) DEFAULT 'SIMULATED'", "postgres": "VARCHAR(30) DEFAULT 'SIMULATED'"},
+        {"name": "provider_lock_type", "sqlite": "VARCHAR(50) DEFAULT 'MOCK_SIMULATED'", "postgres": "VARCHAR(50) DEFAULT 'MOCK_SIMULATED'"},
+        {"name": "retention_period_days", "sqlite": "INTEGER DEFAULT 0", "postgres": "INTEGER DEFAULT 0"},
+    ],
+    "storage_objects": [
+        {"name": "is_encrypted", "sqlite": "BOOLEAN DEFAULT 0", "postgres": "BOOLEAN DEFAULT FALSE"},
+        {"name": "encryption_algo", "sqlite": "VARCHAR(30) DEFAULT 'AES-256-GCM'", "postgres": "VARCHAR(30) DEFAULT 'AES-256-GCM'"},
+        {"name": "encryption_nonce", "sqlite": "VARCHAR(64)", "postgres": "VARCHAR(64)"},
+        {"name": "encrypted_dek", "sqlite": "TEXT", "postgres": "TEXT"},
+        {"name": "dek_nonce", "sqlite": "VARCHAR(64)", "postgres": "VARCHAR(64)"},
+        {"name": "key_version", "sqlite": "INTEGER DEFAULT 1", "postgres": "INTEGER DEFAULT 1"},
+        {"name": "aad_tag", "sqlite": "VARCHAR(255)", "postgres": "VARCHAR(255)"},
+    ],
+    "audit_logs": [
+        {"name": "severity", "sqlite": "VARCHAR(20) DEFAULT 'INFO'", "postgres": "VARCHAR(20) DEFAULT 'INFO'"},
+        {"name": "user_agent", "sqlite": "VARCHAR(255) DEFAULT ''", "postgres": "VARCHAR(255) DEFAULT ''"},
+        {"name": "details", "sqlite": "TEXT DEFAULT '{}'", "postgres": "TEXT DEFAULT '{}'"},
+        {"name": "prev_hash", "sqlite": "VARCHAR(64) DEFAULT ''", "postgres": "VARCHAR(64) DEFAULT ''"},
+        {"name": "current_hash", "sqlite": "VARCHAR(64) DEFAULT ''", "postgres": "VARCHAR(64) DEFAULT ''"},
+    ],
+    "dr_drills": [
+        {"name": "drill_type", "sqlite": "VARCHAR(50) DEFAULT 'FULL_SNAPSHOT'", "postgres": "VARCHAR(50) DEFAULT 'FULL_SNAPSHOT'"},
+        {"name": "drill_scope", "sqlite": "VARCHAR(255)", "postgres": "VARCHAR(255)"},
+        {"name": "verification_report", "sqlite": "TEXT", "postgres": "TEXT"},
+    ]
+}
+
+
+def get_target_engine(engine_or_url: Optional[Union[Engine, str]] = None, db_path: Optional[str] = None) -> Engine:
+    """Resolve target SQLAlchemy Engine from argument, db_path, or default application engine."""
+    if engine_or_url is not None:
+        if isinstance(engine_or_url, Engine):
+            return engine_or_url
+        return create_engine(engine_or_url)
+    
+    if db_path is not None:
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        return create_engine(f"sqlite:///{db_path}")
+
+    return default_engine
+
+
+def init_migration_tracking(engine: Engine) -> None:
+    """Create schema_migrations version table if it doesn't already exist."""
+    with engine.begin() as conn:
+        dialect = engine.dialect.name
+        if dialect == "sqlite":
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version VARCHAR(100) PRIMARY KEY,
+                    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    dialect VARCHAR(30)
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version VARCHAR(100) PRIMARY KEY,
+                    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    dialect VARCHAR(30)
+                )
+            """))
+
+
+def is_migration_applied(engine: Engine, version: str) -> bool:
+    """Check if the given version is recorded in schema_migrations."""
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT version FROM schema_migrations WHERE version = :ver"),
+                {"ver": version}
+            ).fetchone()
+            return result is not None
+    except Exception:
+        return False
+
+
+def record_migration_applied(engine: Engine, version: str) -> None:
+    """Record successfully applied migration in schema_migrations table."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO schema_migrations (version, dialect) VALUES (:ver, :dia)"),
+            {"ver": version, "dia": engine.dialect.name}
+        )
+
+
+def run_migrations(
+    engine_or_url: Optional[Union[Engine, str]] = None,
+    db_path: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    Idempotent database migration script for CloudVault 2.0.
-    Safely adds new columns to existing tables and creates new tables without data loss.
+    Run non-destructive, engine-independent schema migrations.
+    Safely creates all missing tables and adds missing columns to existing tables.
+    Works identically on SQLite and PostgreSQL.
     """
-    if db_path is None:
-        db_path = str(BASE_DIR / "data" / "cloudvault.db")
+    engine = get_target_engine(engine_or_url, db_path)
+    dialect = engine.dialect.name
+    print(f"Applying CloudVault 2.0 migrations to: {engine.url} (dialect: {dialect})")
 
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    # 1. Initialize migration tracking table
+    init_migration_tracking(engine)
 
-    def column_exists(table, column):
-        cursor.execute(f"PRAGMA table_info({table})")
-        columns = [row[1] for row in cursor.fetchall()]
-        return column in columns
+    # 2. Idempotently create any tables defined in SQLAlchemy models that don't exist yet
+    Base.metadata.create_all(bind=engine)
 
-    def table_exists(table):
-        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
-        return cursor.fetchone() is not None
+    # 3. Inspect existing tables and apply missing columns non-destructively
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
 
-    print(f"Applying CloudVault 2.0 migrations to: {db_path}")
+    columns_added = []
+    with engine.begin() as conn:
+        for table_name, col_specs in TABLE_COLUMN_SPECS.items():
+            if table_name in existing_tables:
+                existing_cols = {col["name"] for col in inspector.get_columns(table_name)}
+                for spec in col_specs:
+                    col_name = spec["name"]
+                    if col_name not in existing_cols:
+                        type_str = spec["sqlite"] if dialect == "sqlite" else spec["postgres"]
+                        sql = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {type_str}"
+                        conn.execute(text(sql))
+                        columns_added.append(f"{table_name}.{col_name}")
 
-    # 1. Update 'users' table
-    if table_exists("users"):
-        if not column_exists("users", "mfa_secret"):
-            cursor.execute("ALTER TABLE users ADD COLUMN mfa_secret VARCHAR(64)")
-        if not column_exists("users", "mfa_enabled"):
-            cursor.execute("ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN DEFAULT 0")
-        if not column_exists("users", "encryption_salt"):
-            cursor.execute("ALTER TABLE users ADD COLUMN encryption_salt VARCHAR(64)")
-        if not column_exists("users", "current_key_version"):
-            cursor.execute("ALTER TABLE users ADD COLUMN current_key_version INTEGER DEFAULT 1")
-        if not column_exists("users", "mfa_failed_attempts"):
-            cursor.execute("ALTER TABLE users ADD COLUMN mfa_failed_attempts INTEGER DEFAULT 0")
-        if not column_exists("users", "mfa_locked_until"):
-            cursor.execute("ALTER TABLE users ADD COLUMN mfa_locked_until DATETIME")
+    # 4. Record migration version
+    if not is_migration_applied(engine, MIGRATION_VERSION):
+        record_migration_applied(engine, MIGRATION_VERSION)
 
-    # 2. Update 'backup_plans' table
-    if table_exists("backup_plans"):
-        if not column_exists("backup_plans", "encryption_enabled"):
-            cursor.execute("ALTER TABLE backup_plans ADD COLUMN encryption_enabled BOOLEAN DEFAULT 1")
-        if not column_exists("backup_plans", "immutable_lock_days"):
-            cursor.execute("ALTER TABLE backup_plans ADD COLUMN immutable_lock_days INTEGER DEFAULT 0")
+    result = {
+        "status": "SUCCESS",
+        "dialect": dialect,
+        "migration_version": MIGRATION_VERSION,
+        "columns_added": columns_added
+    }
+    print(f"Database migrations applied successfully! Columns added: {len(columns_added)}")
+    return result
 
-    # 3. Update 'snapshots' table
-    if table_exists("snapshots"):
-        if not column_exists("snapshots", "is_immutable"):
-            cursor.execute("ALTER TABLE snapshots ADD COLUMN is_immutable BOOLEAN DEFAULT 0")
-        if not column_exists("snapshots", "lock_until"):
-            cursor.execute("ALTER TABLE snapshots ADD COLUMN lock_until DATETIME")
-        if not column_exists("snapshots", "verification_status"):
-            cursor.execute("ALTER TABLE snapshots ADD COLUMN verification_status VARCHAR(20) DEFAULT 'UNVERIFIED'")
-        if not column_exists("snapshots", "verified_at"):
-            cursor.execute("ALTER TABLE snapshots ADD COLUMN verified_at DATETIME")
-        if not column_exists("snapshots", "retention_mode"):
-            cursor.execute("ALTER TABLE snapshots ADD COLUMN retention_mode VARCHAR(30) DEFAULT 'SIMULATED'")
-        if not column_exists("snapshots", "provider_lock_type"):
-            cursor.execute("ALTER TABLE snapshots ADD COLUMN provider_lock_type VARCHAR(50) DEFAULT 'MOCK_SIMULATED'")
-        if not column_exists("snapshots", "retention_period_days"):
-            cursor.execute("ALTER TABLE snapshots ADD COLUMN retention_period_days INTEGER DEFAULT 0")
 
-    # 4. Update 'storage_objects' table
-    if table_exists("storage_objects"):
-        if not column_exists("storage_objects", "is_encrypted"):
-            cursor.execute("ALTER TABLE storage_objects ADD COLUMN is_encrypted BOOLEAN DEFAULT 0")
-        if not column_exists("storage_objects", "encryption_algo"):
-            cursor.execute("ALTER TABLE storage_objects ADD COLUMN encryption_algo VARCHAR(30) DEFAULT 'AES-256-GCM'")
-        if not column_exists("storage_objects", "encryption_nonce"):
-            cursor.execute("ALTER TABLE storage_objects ADD COLUMN encryption_nonce VARCHAR(64)")
-        if not column_exists("storage_objects", "encrypted_dek"):
-            cursor.execute("ALTER TABLE storage_objects ADD COLUMN encrypted_dek TEXT")
-        if not column_exists("storage_objects", "dek_nonce"):
-            cursor.execute("ALTER TABLE storage_objects ADD COLUMN dek_nonce VARCHAR(64)")
-        if not column_exists("storage_objects", "key_version"):
-            cursor.execute("ALTER TABLE storage_objects ADD COLUMN key_version INTEGER DEFAULT 1")
-        if not column_exists("storage_objects", "aad_tag"):
-            cursor.execute("ALTER TABLE storage_objects ADD COLUMN aad_tag VARCHAR(255)")
+def generate_postgres_migration_sql() -> str:
+    """
+    Generate an offline pure PostgreSQL DDL script for enterprise DBA inspection
+    and manual deployment without running against a live database.
+    """
+    statements = [
+        "-- CloudVault 2.0 PostgreSQL Migration Script",
+        f"-- Version: {MIGRATION_VERSION}",
+        "-- Non-destructive schema evolution",
+        "",
+        "CREATE TABLE IF NOT EXISTS schema_migrations (",
+        "    version VARCHAR(100) PRIMARY KEY,",
+        "    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,",
+        "    dialect VARCHAR(30)",
+        ");",
+        ""
+    ]
 
-    # 5. Create or update 'audit_logs' table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS audit_logs (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        event_type VARCHAR(50) NOT NULL,
-        severity VARCHAR(20) DEFAULT 'INFO',
-        ip_address VARCHAR(45) DEFAULT '',
-        user_agent VARCHAR(255) DEFAULT '',
-        details TEXT DEFAULT '{}',
-        prev_hash VARCHAR(64) DEFAULT '',
-        current_hash VARCHAR(64) DEFAULT '',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id)
+    for table_name, col_specs in TABLE_COLUMN_SPECS.items():
+        for spec in col_specs:
+            col_name = spec["name"]
+            type_str = spec["postgres"]
+            statements.append(
+                f"DO $$ BEGIN "
+                f"IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='{table_name}' AND column_name='{col_name}') THEN "
+                f"ALTER TABLE {table_name} ADD COLUMN {col_name} {type_str}; "
+                f"END IF; END $$;"
+            )
+
+    statements.append("")
+    statements.append(
+        f"INSERT INTO schema_migrations (version, dialect) "
+        f"VALUES ('{MIGRATION_VERSION}', 'postgresql') "
+        f"ON CONFLICT (version) DO NOTHING;"
     )
-    """)
-    if table_exists("audit_logs"):
-        if not column_exists("audit_logs", "severity"):
-            cursor.execute("ALTER TABLE audit_logs ADD COLUMN severity VARCHAR(20) DEFAULT 'INFO'")
-        if not column_exists("audit_logs", "user_agent"):
-            cursor.execute("ALTER TABLE audit_logs ADD COLUMN user_agent VARCHAR(255) DEFAULT ''")
-        if not column_exists("audit_logs", "details"):
-            cursor.execute("ALTER TABLE audit_logs ADD COLUMN details TEXT DEFAULT '{}'")
-        if not column_exists("audit_logs", "prev_hash"):
-            cursor.execute("ALTER TABLE audit_logs ADD COLUMN prev_hash VARCHAR(64) DEFAULT ''")
-        if not column_exists("audit_logs", "current_hash"):
-            cursor.execute("ALTER TABLE audit_logs ADD COLUMN current_hash VARCHAR(64) DEFAULT ''")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)")
 
-    # 6. Create 'ai_action_requests' table (for replay prevention and action authorization)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS ai_action_requests (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        action_type VARCHAR(50) NOT NULL,
-        resource_id VARCHAR(100),
-        proposed_payload TEXT NOT NULL,
-        nonce VARCHAR(64) UNIQUE NOT NULL,
-        is_consumed BOOLEAN DEFAULT 0,
-        status VARCHAR(20) DEFAULT 'PENDING',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        expires_at DATETIME NOT NULL,
-        executed_at DATETIME,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_nonce ON ai_action_requests(nonce)")
+    return "\n".join(statements)
 
-    # 7. Create 'ransomware_alerts' table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS ransomware_alerts (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        plan_id VARCHAR(36),
-        risk_score INTEGER NOT NULL,
-        alert_level VARCHAR(20) NOT NULL,
-        suspicious_files_count INTEGER DEFAULT 0,
-        average_entropy FLOAT DEFAULT 0.0,
-        matched_extensions TEXT DEFAULT '[]',
-        details TEXT DEFAULT '{}',
-        status VARCHAR(20) DEFAULT 'ACTIVE',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_user ON ransomware_alerts(user_id)")
-
-    # 8. Create 'dr_drills' table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS dr_drills (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        snapshot_id VARCHAR(36) NOT NULL,
-        drill_type VARCHAR(50) DEFAULT 'FULL_SNAPSHOT',
-        drill_scope VARCHAR(255),
-        files_tested INTEGER NOT NULL,
-        bytes_tested BIGINT NOT NULL,
-        duration_seconds FLOAT NOT NULL,
-        restoration_speed_mbps FLOAT DEFAULT 0.0,
-        rpo_hours FLOAT DEFAULT 0.0,
-        estimated_rto_minutes FLOAT DEFAULT 0.0,
-        status VARCHAR(20) NOT NULL,
-        error_details TEXT,
-        verification_report TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(snapshot_id) REFERENCES snapshots(id)
-    )
-    """)
-    if table_exists("dr_drills"):
-        if not column_exists("dr_drills", "drill_type"):
-            cursor.execute("ALTER TABLE dr_drills ADD COLUMN drill_type VARCHAR(50) DEFAULT 'FULL_SNAPSHOT'")
-        if not column_exists("dr_drills", "drill_scope"):
-            cursor.execute("ALTER TABLE dr_drills ADD COLUMN drill_scope VARCHAR(255)")
-        if not column_exists("dr_drills", "verification_report"):
-            cursor.execute("ALTER TABLE dr_drills ADD COLUMN verification_report TEXT")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dr_user ON dr_drills(user_id)")
-
-    # 9. Create 'mfa_recovery_codes' table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        code_hash VARCHAR(255) NOT NULL,
-        is_used BOOLEAN DEFAULT 0,
-        used_at DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_mfa_user ON mfa_recovery_codes(user_id)")
-
-    # 10. Create 'recovery_operations' table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS recovery_operations (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        snapshot_id VARCHAR(36),
-        operation_type VARCHAR(50) NOT NULL,
-        target_path VARCHAR(1000),
-        destination_path VARCHAR(1000),
-        conflict_strategy VARCHAR(50) DEFAULT 'keep_both',
-        status VARCHAR(20) DEFAULT 'SUCCESS',
-        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        completed_at DATETIME,
-        duration_seconds FLOAT DEFAULT 0.0,
-        rpo_hours FLOAT DEFAULT 0.0,
-        files_restored INTEGER DEFAULT 0,
-        bytes_restored BIGINT DEFAULT 0,
-        throughput_mbps FLOAT DEFAULT 0.0,
-        verification_report TEXT DEFAULT '{}',
-        error_message TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(snapshot_id) REFERENCES snapshots(id)
-    )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rec_user ON recovery_operations(user_id)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rec_snapshot ON recovery_operations(snapshot_id)")
-
-    conn.commit()
-    conn.close()
-    print("Database migrations applied successfully!")
 
 if __name__ == "__main__":
     run_migrations()

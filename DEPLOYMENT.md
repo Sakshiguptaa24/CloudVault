@@ -281,3 +281,22 @@ STORAGE_TIMEOUT_SECONDS=10
 - **User Data Isolation:** Database-level queries enforce `user_id` filtering on snapshots, plans, devices, and restore targets.
 - **Hash Integrity:** Every restored payload is decompressed and compared against its SHA-256 fingerprint before delivery.
 
+---
+
+## 11. Phase 7: Production Security & Reliability Hardening
+
+### Pre-Deployment Verification Checklist
+Before deploying CloudVault 2.0 to any public hosting environment, ensure all of the following requirements are fulfilled:
+
+1. **Environment Declaration:** Set `ENVIRONMENT=production` in the production environment variables.
+2. **Cryptographic Key Strength:** Set a cryptographically random `SECRET_KEY` of at least 32 bytes (`python -c "import secrets; print(secrets.token_hex(32))"`). The application will refuse to start if using the default placeholder.
+3. **CORS Restrictions:** Set explicit HTTPS domains in `ALLOWED_ORIGINS` (e.g., `https://my-cloudvault.streamlit.app`). Wildcard `*` or insecure `http://` origins are strictly rejected at startup in production mode.
+4. **Persistent Storage:** Set `STORAGE_PROVIDER` to `gcs`, `s3`, or `azure` with a valid bucket name. Production mode strictly rejects ephemeral `mock` storage to guarantee persistence across container lifecycles.
+5. **Direct Web Upload Encryption:** Every uploaded file is compressed and envelope-encrypted using per-user AES-256-GCM before storage, identical to scheduled backups.
+6. **Abuse Protection:** Rate limiters protect `/api/v1/auth/login` (5 attempts / 5 min with `Retry-After` headers) and `/api/v1/auth/register` (10 accounts / hour per IP).
+7. **Authenticated SSE:** Real-time event notifications on `/api/v1/events/stream` require a valid, non-expired Bearer JWT token. Anonymous connections return HTTP 401.
+8. **Relational Database Engine:** Schema migrations via `backend/app/migrations.py` are dialect-agnostic, supporting both local SQLite and managed PostgreSQL (e.g. Supabase, Neon, AWS RDS) with schema version tracking in `schema_migrations`.
+9. **Cold-Start Resilience:** The Streamlit API client handles serverless cold-start delays up to 45 seconds gracefully, displaying an interactive warm-up status rather than connection errors.
+10. **Automated Regression Suite:** All 128 tests pass (`pytest backend/tests/ -v`).
+
+

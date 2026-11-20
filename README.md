@@ -297,4 +297,5 @@ When ready to connect to a live Google Cloud Storage bucket:
 - **Database:** SQLite 3 (WAL mode enabled, zero external dependencies).
 - **Storage Providers:** Google Cloud Storage SDK (`google-cloud-storage`), AWS S3 adapter, Azure Blob adapter, Air-gapped Mock Provider.
 - **Frontend:** Progressive Web App (PWA), HTML5, Vanilla JavaScript (ES6+), Modern Dark-Mode CSS3, Server-Sent Events (SSE).
-- **Testing:** Pytest, FastApi TestClient, AnyIO.
+- **Testing:** Pytest, FastAPI TestClient, AnyIO (128 automated tests passing across Phases 0–7).
+- **Security Hardening (Phase 7):** Production strict mode, AES-256-GCM direct web upload encryption, sliding-window rate limiting, authenticated SSE streams, and engine-independent database migrations.
