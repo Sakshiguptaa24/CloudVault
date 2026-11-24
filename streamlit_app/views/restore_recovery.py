@@ -45,9 +45,9 @@ def render_restore_recovery(client: CloudVaultClient):
                         st.markdown(f"""
                         <div class="cv-card" style="border-left: 4px solid #22c55e;">
                             <h3 style="margin-top: 0; color: #4ade80;">Restoration Receipt</h3>
-                            <p><strong>Files Restored:</strong> {res.get('files_restored')}</p>
-                            <p><strong>Data Volume Restored:</strong> {format_bytes(res.get('bytes_restored'))}</p>
-                            <p><strong>Target Directory:</strong> <code>{res.get('destination')}</code></p>
+                            <p><strong>Files Restored:</strong> {res.get('files_restored', 1)}</p>
+                            <p><strong>Data Volume Restored:</strong> {format_bytes(res.get('bytes_restored', 0))}</p>
+                            <p><strong>Target Directory:</strong> <code>{res.get('destination', 'restored/')}</code></p>
                             <p><strong>Integrity Verification:</strong> <span class="badge badge-success">100% Validated (SHA-256)</span></p>
                         </div>
                         """, unsafe_allow_html=True)
@@ -80,7 +80,7 @@ def render_restore_recovery(client: CloudVaultClient):
                     st.info("No deleted files detected for this plan. All tracked files are present in the latest snapshot.")
                 else:
                     st.write(f"Found {len(deleted_files)} recoverable deleted file(s):")
-                    df_options = {df["id"]: f"{df.get('relative_path')} (Last seen: {df.get('last_seen_snapshot_name')})" for df in deleted_files}
+                    df_options = {df["id"]: f"{df.get('relative_path')} (Last seen: {df.get('last_seen_snapshot_name') or df.get('last_snapshot_id', 'Recent Snapshot')})" for df in deleted_files}
                     sel_df_id = st.selectbox("Choose file to recover:", options=list(df_options.keys()), format_func=lambda dfid: df_options[dfid])
                     del_dest = st.text_input("Destination Directory:", value="restored/deleted_recovery", key="del_dest")
 
@@ -93,6 +93,14 @@ def render_restore_recovery(client: CloudVaultClient):
                                 conflict_strategy="keep_both"
                             )
                             st.success(f"File restored to: {res.get('destination')} with verified integrity.")
+                            if res.get("file_bytes"):
+                                import os
+                                st.download_button(
+                                    label=f"💾 Download Recovered File ({os.path.basename(res.get('destination', 'recovered_file'))})",
+                                    data=res.get("file_bytes"),
+                                    file_name=os.path.basename(res.get("destination", "recovered_file")),
+                                    key=f"dl_del_{sel_df_id}"
+                                )
                         except APIError as e:
                             st.error(f"Recovery failed: {e.detail}")
                         except Exception as e:

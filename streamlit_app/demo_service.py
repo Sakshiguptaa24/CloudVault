@@ -285,9 +285,14 @@ class DemoState:
                 "id": "job-demo-101",
                 "plan_name": "Standard Production Vault (Demo)",
                 "status": "COMPLETED",
+                "trigger_type": "SCHEDULED",
                 "started_at": "2026-11-20T08:00:00Z",
                 "completed_at": "2026-11-20T08:01:14Z",
                 "files_processed": 14,
+                "files_scanned": 14,
+                "files_uploaded": 8,
+                "files_deduplicated": 6,
+                "duration_seconds": 74,
                 "bytes_transferred": 864026624,
                 "deduplication_ratio": 42.0
             },
@@ -295,9 +300,14 @@ class DemoState:
                 "id": "job-demo-102",
                 "plan_name": "Standard Production Vault (Demo)",
                 "status": "COMPLETED",
+                "trigger_type": "SCHEDULED",
                 "started_at": "2026-11-19T18:30:00Z",
                 "completed_at": "2026-11-19T18:31:02Z",
                 "files_processed": 12,
+                "files_scanned": 12,
+                "files_uploaded": 7,
+                "files_deduplicated": 5,
+                "duration_seconds": 62,
                 "bytes_transferred": 817889280,
                 "deduplication_ratio": 39.1
             }
@@ -306,20 +316,28 @@ class DemoState:
             {
                 "sequence": 1,
                 "event_type": "SYSTEM_SEED",
+                "action": "SYSTEM_SEED",
+                "severity": "INFO",
                 "actor": "system",
                 "details": "Initialized immutable cryptographic hash chain",
                 "block_hash": "c8f2a1b3e4d567890123456789abcdef0123456789abcdef0123456789abcdef",
+                "current_hash": "c8f2a1b3e4d567890123456789abcdef0123456789abcdef0123456789abcdef",
                 "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
-                "timestamp": "2026-11-20T07:00:00Z"
+                "timestamp": "2026-11-20T07:00:00Z",
+                "created_at": "2026-11-20T07:00:00Z"
             },
             {
                 "sequence": 2,
                 "event_type": "SNAPSHOT_CREATE",
+                "action": "SNAPSHOT_CREATE",
+                "severity": "INFO",
                 "actor": "demo-evaluator",
                 "details": "Created immutable point-in-time snapshot snap-demo-20261120-001",
                 "block_hash": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2",
+                "current_hash": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2",
                 "prev_hash": "c8f2a1b3e4d567890123456789abcdef0123456789abcdef0123456789abcdef",
-                "timestamp": "2026-11-20T08:00:00Z"
+                "timestamp": "2026-11-20T08:00:00Z",
+                "created_at": "2026-11-20T08:00:00Z"
             }
         ]
         # In-memory storage for deduplication tracking
@@ -384,6 +402,7 @@ class DemoClient:
             "full_name": "Demo Evaluator",
             "role": "evaluator",
             "quota_bytes": 5 * 1024 * 1024 * 1024,  # 5 GB demo quota
+            "used_bytes": 864026624,
             "created_at": "2026-11-20T00:00:00Z",
             "is_demo_mode": True
         }
@@ -463,14 +482,30 @@ class DemoClient:
             "id": f"job-demo-{len(state.jobs) + 101}",
             "plan_name": "Standard Production Vault (Demo)",
             "status": "COMPLETED",
+            "trigger_type": "MANUAL",
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "files_processed": len(state.files),
+            "files_scanned": len(state.files),
+            "files_uploaded": max(1, len(state.files) // 2),
+            "files_deduplicated": max(1, len(state.files) - (len(state.files) // 2)),
+            "duration_seconds": 1.2,
             "bytes_transferred": sum(f.get("file_size", 0) for f in state.files),
             "deduplication_ratio": 42.6
         }
         state.jobs.insert(0, new_job)
-        return {"status": "SUCCESS", "job_id": new_job["id"], "message": "Demo backup job executed successfully."}
+        return {
+            "status": "SUCCESS",
+            "job_id": new_job["id"],
+            "snapshot_name": f"Manual Vault Snapshot ({new_job['id']})",
+            "files_scanned": new_job["files_scanned"],
+            "files_uploaded": new_job["files_uploaded"],
+            "bytes_uploaded": int(new_job["bytes_transferred"] * 0.58),
+            "files_deduplicated": new_job["files_deduplicated"],
+            "bytes_deduplicated": int(new_job["bytes_transferred"] * 0.42),
+            "duration_seconds": 1.2,
+            "message": "Demo backup job executed successfully."
+        }
 
     def upload_file_direct(
         self,
@@ -572,11 +607,14 @@ class DemoClient:
 
         return {
             "total_files": len(state.files) + 10,
+            "total_files_protected": len(state.files) + 10,
             "total_snapshots": len(state.snapshots),
             "total_uncompressed_bytes": total_uncompressed,
             "total_stored_bytes": total_stored,
             "deduplicated_bytes": dedup_bytes,
+            "bytes_saved_deduplication": dedup_bytes,
             "deduplication_ratio": dedup_ratio,
+            "savings_percentage": dedup_ratio,
             "quota_limit_bytes": 5 * 1024 * 1024 * 1024,  # 5 GB
             "quota_used_pct": round((total_stored / (5 * 1024 * 1024 * 1024)) * 100, 1),
             "demo_mode": True
@@ -642,7 +680,8 @@ class DemoClient:
                 "relative_path": "legacy_docs/2025_annual_plan.docx",
                 "file_size": 245760,
                 "deleted_at": "2026-11-19T10:00:00Z",
-                "last_snapshot_id": "snap-demo-20261118-001"
+                "last_snapshot_id": "snap-demo-20261118-001",
+                "last_seen_snapshot_name": "Mid-Week Ledger Snapshot"
             }
         ]
 
@@ -679,7 +718,9 @@ class DemoClient:
             "drill_id": f"drill-demo-{int(time.time())}",
             "execution_duration_sec": 0.18,
             "integrity_verified_pct": 100.0,
+            "rto_seconds": 2.1,
             "rto_measured_sec": 2.1,
+            "verified_files": 14,
             "message": "Synthetic Disaster Recovery Drill completed with 100% bit-level integrity."
         }
 
@@ -732,12 +773,19 @@ class DemoClient:
         }
 
     def list_audit_logs(self, token: str, limit: int = 50) -> Dict[str, Any]:
-        return {"logs": get_demo_state().audit_chain[:limit], "total": len(get_demo_state().audit_chain)}
+        logs = get_demo_state().audit_chain[:limit]
+        return {
+            "logs": logs,
+            "audit_logs": logs,
+            "total": len(get_demo_state().audit_chain)
+        }
 
     def verify_audit_trail(self, token: str) -> Dict[str, Any]:
         return {
+            "valid": True,
             "status": "VALID",
             "verified_blocks": len(get_demo_state().audit_chain) + 26,
+            "total_events": len(get_demo_state().audit_chain) + 26,
             "tampering_detected": False,
             "message": "HMAC-SHA256 cryptographic audit chain validated with 100% integrity."
         }
@@ -748,6 +796,10 @@ class DemoClient:
             "kdf": "PBKDF2-HMAC-SHA256",
             "kek_status": "ACTIVE",
             "kek_id": "kek-user-demo-master-2026",
+            "key_version": 1,
+            "encrypted_objects_count": 14,
+            "encryption_ratio_percent": 100.0,
+            "user_has_salt": True,
             "deterministic_dek_enabled": True,
             "envelope_encryption_active": True
         }
@@ -756,6 +808,7 @@ class DemoClient:
         return {
             "status": "SUCCESS",
             "new_kek_id": f"kek-user-demo-{int(time.time())}",
+            "new_key_version": 2,
             "message": "Key Encryption Key (KEK) rotated. DEK envelopes re-wrapped."
         }
 
@@ -850,7 +903,16 @@ class DemoClient:
             "dr_readiness_score": 98,
             "dedup_efficiency_pct": 42.6,
             "growth_rate_daily_mb": 18.4,
-            "estimated_days_to_quota": 232
+            "estimated_days_to_quota": 232,
+            "cost_comparison": {
+                "without_dedup_monthly_usd": 48.50,
+                "with_dedup_monthly_usd": 27.80,
+                "monthly_savings_usd": 20.70,
+                "aws_s3_estimate_usd": 32.10,
+                "azure_blob_estimate_usd": 31.40,
+                "gcp_standard_estimate_usd": 29.80,
+                "wasabi_estimate_usd": 14.50
+            }
         }
 
     def get_storage_forecast(self, token: str, days: int = 30) -> Dict[str, Any]:
@@ -893,9 +955,13 @@ class DemoClient:
         return [
             {
                 "path": f.get("relative_path"),
+                "relative_path": f.get("relative_path"),
+                "file_name": os.path.basename(f.get("relative_path", "")),
                 "size_bytes": f.get("file_size"),
+                "file_size": f.get("file_size"),
                 "sha256": f.get("sha256_hash", "")[:16] + "...",
-                "modified": f.get("modified_at")
+                "modified": f.get("modified_at"),
+                "compression_algo": "gzip"
             }
             for f in sorted_files[:limit]
         ]
@@ -907,7 +973,16 @@ class DemoClient:
             "weekly_storage_saved_mb": 596.2,
             "incident_count": 0,
             "drills_conducted": 7,
-            "compliance_status": "COMPLIANT"
+            "compliance_status": "COMPLIANT",
+            "markdown": (
+                "# CloudVault Weekly Executive Protection Report\n\n"
+                "**Status:** ALL SYSTEMS COMPLIANT\n\n"
+                "- **Protected Volume:** 1,420.5 MB across 14 enterprise data assets\n"
+                "- **Storage Saved:** 596.2 MB (42.6% deduplication ratio)\n"
+                "- **Drills Conducted:** 7 automated disaster recovery drills (100% verified)\n"
+                "- **Security Incidents:** 0 unmitigated anomalies\n"
+                "- **Cryptographic Audits:** Chain integrity verified with 0 discrepancies."
+            )
         }
 
     # -------------------------------------------------------------

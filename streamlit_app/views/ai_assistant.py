@@ -27,12 +27,17 @@ def render_ai_assistant(client: CloudVaultClient):
 
     st.markdown("<hr style='border-color: #1e293b; margin: 20px 0;'>", unsafe_allow_html=True)
 
+    if "ai_messages" not in st.session_state or not isinstance(st.session_state["ai_messages"], list):
+        st.session_state["ai_messages"] = [
+            {"role": "assistant", "content": "👋 Hello! I am your CloudVault AI Disaster Recovery & Security Copilot. How can I help you today? You can ask me to evaluate DR readiness, check your RPO/RTO metrics, or analyze backup trends."}
+        ]
+
     # Render Chat History
-    for msg in st.session_state.get("ai_messages", []):
+    for idx, msg in enumerate(st.session_state.get("ai_messages", [])):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg.get("action_card"):
-                _render_action_card(msg["action_card"], client, token)
+                _render_action_card(msg["action_card"], client, token, card_index=idx)
 
     # Handle incoming input
     user_input = st.chat_input("Ask CloudVault Copilot anything...")
@@ -57,7 +62,7 @@ def render_ai_assistant(client: CloudVaultClient):
                     msg_obj = {"role": "assistant", "content": reply_text}
                     if act_card:
                         msg_obj["action_card"] = act_card
-                        _render_action_card(act_card, client, token)
+                        _render_action_card(act_card, client, token, card_index=len(st.session_state["ai_messages"]))
 
                     st.session_state["ai_messages"].append(msg_obj)
                 except APIError as e:
@@ -70,7 +75,7 @@ def render_ai_assistant(client: CloudVaultClient):
                     st.session_state["ai_messages"].append({"role": "assistant", "content": err_msg})
 
 
-def _render_action_card(act_card: dict, client: CloudVaultClient, token: str):
+def _render_action_card(act_card: dict, client: CloudVaultClient, token: str, card_index: int = 0):
     """Render high-visibility HMAC confirmation card for privileged actions."""
     action_type = act_card.get("action_type", "PRIVILEGED_ACTION")
     conf_token = act_card.get("confirmation_token")
@@ -85,7 +90,7 @@ def _render_action_card(act_card: dict, client: CloudVaultClient, token: str):
     """, unsafe_allow_html=True)
 
     if conf_token:
-        btn_key = f"confirm_{conf_token[:10]}"
+        btn_key = f"confirm_{card_index}_{conf_token[:10]}"
         if st.button(f"✅ Approve & Execute {action_type}", key=btn_key, type="primary"):
             with st.spinner("Verifying cryptographic token and executing operation..."):
                 try:

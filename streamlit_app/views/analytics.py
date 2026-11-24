@@ -61,31 +61,33 @@ def render_analytics(client: CloudVaultClient):
     # -------------------------------------------------------------
     with tab2:
         st.subheader("Multi-Cloud Cost Modeling")
+        default_cost_model = {
+            "google_cloud_storage": 0.12,
+            "amazon_s3": 0.14,
+            "azure_blob": 0.11,
+            "local_mock": 0.00,
+            "monthly_savings_dollars": 0.85
+        }
         try:
             overview = client.get_analytics_overview(token)
-            cost_model = overview.get("cost_comparison", {})
+            cost_model = overview.get("cost_comparison") or default_cost_model
         except Exception:
-            cost_model = {
-                "google_cloud_storage": 0.12,
-                "amazon_s3": 0.14,
-                "azure_blob": 0.11,
-                "local_mock": 0.00,
-                "monthly_savings_dollars": 0.85
-            }
+            cost_model = default_cost_model
 
-        st.markdown("<p style='color: #94a3b8;'>Estimated monthly cost to store your uncompressed data vs. deduplicated footprint across major hyper-scalers:</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #94a3b8;'>Estimated monthly cost to store your uncompressed data vs. deduplicated footprint across major hyper-scalers (Demonstration Estimates):</p>", unsafe_allow_html=True)
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Google Cloud (GCS)", f"${cost_model.get('google_cloud_storage', 0.0):.2f} / mo")
+            st.metric("Google Cloud (GCS)", f"${cost_model.get('google_cloud_storage', 0.12):.2f} / mo")
         with col2:
-            st.metric("Amazon S3", f"${cost_model.get('amazon_s3', 0.0):.2f} / mo")
+            st.metric("Amazon S3", f"${cost_model.get('amazon_s3', 0.14):.2f} / mo")
         with col3:
-            st.metric("Azure Blob", f"${cost_model.get('azure_blob', 0.0):.2f} / mo")
+            st.metric("Azure Blob", f"${cost_model.get('azure_blob', 0.11):.2f} / mo")
         with col4:
             st.metric("Local Mock Engine", "$0.00 / mo", "Free Offline Tier")
 
-        st.success(f"💡 Deduplication and LZ4/gzip compression save an estimated **${cost_model.get('monthly_savings_dollars', 0.0):.2f} per month** in cloud storage and egress fees.")
+        savings_val = cost_model.get("monthly_savings_dollars", 0.85)
+        st.success(f"💡 Deduplication and LZ4/gzip compression save an estimated **${savings_val:.2f} per month** in cloud storage and egress fees.")
 
     # -------------------------------------------------------------
     # TAB 3: Heavyweight Files
@@ -98,13 +100,16 @@ def render_analytics(client: CloudVaultClient):
             large_files = []
 
         if large_files:
+            import os
             table_lf = []
             for lf in large_files:
+                rel_p = lf.get("relative_path") or lf.get("path") or "unnamed_asset"
+                f_size = lf.get("file_size") if lf.get("file_size") is not None else lf.get("size_bytes", 0)
                 table_lf.append({
-                    "Filename": lf.get("file_name"),
-                    "Path": lf.get("relative_path"),
-                    "Size": format_bytes(lf.get("file_size")),
-                    "Compression": lf.get("compression_algo", "gzip").upper()
+                    "Filename": lf.get("file_name") or os.path.basename(rel_p),
+                    "Path": rel_p,
+                    "Size": format_bytes(f_size),
+                    "Compression": str(lf.get("compression_algo") or "gzip").upper()
                 })
             st.dataframe(pd.DataFrame(table_lf), use_container_width=True)
         else:

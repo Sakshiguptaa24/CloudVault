@@ -147,7 +147,7 @@ def render_upload_backup(client: CloudVaultClient):
                 st.markdown(f"""
                 <div class="cv-card" style="border-left: 4px solid {'#22c55e' if is_dedup else '#38bdf8'};">
                     <h3 style="margin-top: 0; color: #f8fafc;">Upload & Verification Receipt</h3>
-                    <p><strong>Filename:</strong> {uploaded_file.name}</p>
+                    <p><strong>Filename:</strong> {staged_name}</p>
                     <p><strong>SHA-256 Digest:</strong> <code style="color: #38bdf8;">{sha}</code></p>
                     <p><strong>Integrity Verification:</strong> <span class="badge badge-success">Verified Match</span></p>
                     <p><strong>Storage Status:</strong> {

@@ -151,6 +151,9 @@ def record_audit_log(
     prev_hash = last_log.current_hash if (last_log and last_log.current_hash) else "GENESIS_BLOCK_00000000000000000000000000000000"
 
     now = datetime.utcnow()
+    if last_log and last_log.created_at and now <= last_log.created_at:
+        now = last_log.created_at + timedelta(microseconds=10)
+
     details_str = json.dumps(details, sort_keys=True)
     hash_payload = f"{prev_hash}:{user_id}:{event_type}:{action}:{details_str}:{now.isoformat()}"
     current_hash = hashlib.sha256(hash_payload.encode("utf-8")).hexdigest()
@@ -186,8 +189,8 @@ def verify_audit_log_chain(
       2. Every entry's prev_hash matches the preceding entry's current_hash (or GENESIS).
     Detects any modification, insertion, deletion, or tampering with historical logs.
     """
-    logs = db.query(AuditLog).order_by(AuditLog.created_at.asc(), AuditLog.id.asc()).all()
-    if not logs:
+    raw_logs = db.query(AuditLog).order_by(AuditLog.created_at.asc(), AuditLog.id.asc()).all()
+    if not raw_logs:
         return {
             "is_valid": True,
             "total_entries": 0,
@@ -197,6 +200,26 @@ def verify_audit_log_chain(
             "tamper_evident_status": "INTACT",
             "tamper_evidence_disclaimer": "Cryptographic SHA-256 hash chaining provides tamper-evidence within the database. It proves historical sequencing and flags any modified or deleted record."
         }
+
+    # Reconstruct topological chain order from hash pointers (handles any sub-millisecond timestamp ties)
+    by_prev = {}
+    for l in raw_logs:
+        if l.prev_hash not in by_prev:
+            by_prev[l.prev_hash] = l
+
+    logs = []
+    curr_prev = "GENESIS_BLOCK_00000000000000000000000000000000"
+    visited_ids = set()
+    while curr_prev in by_prev:
+        node = by_prev[curr_prev]
+        logs.append(node)
+        visited_ids.add(node.id)
+        curr_prev = node.current_hash
+
+    # Append any remaining unlinked logs so the verification step can flag broken chain or tampering
+    if len(visited_ids) < len(raw_logs):
+        remaining = [l for l in raw_logs if l.id not in visited_ids]
+        logs.extend(remaining)
 
     expected_prev = "GENESIS_BLOCK_00000000000000000000000000000000"
     verified_count = 0

@@ -179,6 +179,7 @@ def render_landing(client: CloudVaultClient):
 
     # Interactive Architecture Diagram / Specs
     st.subheader("📐 Architecture & Multi-Tenant Isolation")
+    st.info("ℹ️ Architectural Blueprint: The diagram below illustrates the full production topology of CloudVault 2.0 when connected to a live FastAPI gateway and managed cloud infrastructure. In the active Streamlit Community Cloud public preview, CloudVault operates in self-contained Demonstration Mode with session-isolated in-memory state and synthetic telemetry ($0 cloud cost).")
     st.code("""
   +-----------------------------------------------------------------------------------+
   |                       Streamlit Multi-User Web Client                              |

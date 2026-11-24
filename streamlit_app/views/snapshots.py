@@ -81,7 +81,7 @@ def render_snapshots(client: CloudVaultClient):
 
             # Quick Restore Section
             st.markdown("### 📥 Quick Restore From This Snapshot")
-            file_options = {item["id"]: f"{item.get('relative_path')} ({format_bytes(item.get('file_size'))})" for item in tree}
+            file_options = {item.get("id", f"file_{idx}"): f"{item.get('relative_path', 'unnamed')} ({format_bytes(item.get('file_size', 0))})" for idx, item in enumerate(tree)}
             chosen_file_id = st.selectbox(
                 "Choose file to restore:",
                 options=list(file_options.keys()),
@@ -105,7 +105,7 @@ def render_snapshots(client: CloudVaultClient):
                             label=f"💾 Download Restored File ({os.path.basename(res.get('destination', 'restored_file'))})",
                             data=res.get("file_bytes"),
                             file_name=os.path.basename(res.get("destination", "restored_file")),
-                            key="btn_dl_restored"
+                            key=f"btn_dl_restored_{chosen_file_id}"
                         )
                 except APIError as e:
                     st.error(f"Restore failed: {e.detail}")
