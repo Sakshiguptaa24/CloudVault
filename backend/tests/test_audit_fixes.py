@@ -53,6 +53,61 @@ def test_normalize_string_list_single_string():
     assert normalize_string_list(raw) == ["Uploads Only"]
 
 
+def test_normalize_string_list_reproduce_exact_nested_list_join_error():
+    # Exactly reproduces the previous failure where plan source_directories was [['documents/', 'databases/']]
+    raw_nested = [["documents/", "databases/"]]
+    normalized = normalize_string_list(raw_nested)
+    assert normalized == ["documents/", "databases/"]
+    # Verify that str.join operates cleanly without TypeError
+    joined = ", ".join(normalized)
+    assert joined == "documents/, databases/"
+
+
+def test_normalize_string_list_single_quoted_python_repr():
+    # Reproduces Python repr string with single quotes e.g. "['documents/', 'databases/']"
+    raw_py_repr = "['documents/', 'databases/']"
+    normalized = normalize_string_list(raw_py_repr)
+    assert normalized == ["documents/", "databases/"]
+    joined = ", ".join(normalized)
+    assert joined == "documents/, databases/"
+
+
+def test_normalize_string_list_deeply_nested_mixed():
+    raw_deep = [[[["a"]]], ("b", ["c"]), {"paths": ["d", ("e",)]}]
+    normalized = normalize_string_list(raw_deep)
+    assert normalized == ["a", "b", "c", "d", "e"]
+    assert ", ".join(normalized) == "a, b, c, d, e"
+
+
+def test_normalize_string_list_semicolons_and_delimiters():
+    raw_delims = "docs/; databases/;\nlogs/, extra/"
+    normalized = normalize_string_list(raw_delims)
+    assert normalized == ["docs/", "databases/", "logs/", "extra/"]
+
+
+def test_normalize_string_list_mixed_strings_inside_list():
+    raw_mixed = ['["json_dir"]', "['py_dir']", "plain_dir"]
+    normalized = normalize_string_list(raw_mixed)
+    assert normalized == ["json_dir", "py_dir", "plain_dir"]
+
+
+def test_normalize_string_list_null_like_tokens():
+    for token in ("None", "null", "NULL", "[]", "{}", "()", '""', "''"):
+        assert normalize_string_list(token) == []
+
+
+def test_standard_production_vault_plan_render_safe():
+    state = get_demo_state()
+    plan = next((p for p in state.plans if "Standard Production Vault" in p.get("plan_name", "")), state.plans[0])
+    srcs = [str(s) for s in normalize_string_list(plan.get("source_directories")) if str(s).strip()]
+    excls = [str(e) for e in normalize_string_list(plan.get("exclusion_patterns")) if str(e).strip()]
+    # Must join without raising TypeError: sequence item 0: expected str instance, list found
+    joined_srcs = ", ".join(srcs) if srcs else "Uploads Only"
+    joined_excls = ", ".join(excls) if excls else "None"
+    assert joined_srcs == "documents/, databases/"
+    assert joined_excls == "*.tmp, *.cache"
+
+
 # =====================================================================
 # 2. DEMO CLIENT SCHEMA ALIGNMENT TESTS
 # =====================================================================

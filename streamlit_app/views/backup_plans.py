@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import ast
 import re
 from typing import Any, List
 from streamlit_app.api_client import CloudVaultClient, APIError
@@ -9,41 +10,85 @@ from streamlit_app.styles import format_bytes
 
 def normalize_string_list(val: Any) -> List[str]:
     """
-    Safely normalize any directory or pattern representation into a flat list of strings.
+    Recursively and type-safely normalize any directory or pattern representation into a flat list of strings.
     Handles:
       - None / empty values -> []
-      - List/tuple/set of strings (or nested lists) -> flat list of stripped strings
-      - JSON string e.g. '["a", "b"]' -> parsed list of strings
-      - Comma-separated or newline-separated string -> split list of strings
-      - Non-string scalars (int, dict, etc.) -> converted safely to strings
+      - Flat lists or tuples of strings -> clean list of stripped strings
+      - Nested lists/tuples/sets of arbitrary depth -> completely flattened list of strings
+      - JSON-encoded lists e.g. '["docs/", "databases/"]' -> parsed and flattened list of strings
+      - Python list representations e.g. "['docs/', 'databases/']" -> parsed and flattened list of strings
+      - Comma-, semicolon-, and newline-separated strings -> split and trimmed list of strings
+      - Dictionaries containing directory/pattern keys -> extracted and flattened list of strings
+      - Unexpected scalar types (int, float, Path, etc.) -> converted safely to strings
+    Preserves valid file paths, drive letters, and delimiters without converting nested collections
+    into raw string representations like "['a', 'b']".
     """
     if val is None:
         return []
+
+    # 1. Handle collections (list, tuple, set) recursively
     if isinstance(val, (list, tuple, set)):
-        result = []
+        result: List[str] = []
         for item in val:
-            if isinstance(item, (list, tuple, set)):
-                result.extend(normalize_string_list(item))
-            elif item is not None:
-                s = str(item).strip()
-                if s:
-                    result.append(s)
+            result.extend(normalize_string_list(item))
         return result
-    if isinstance(val, str):
-        s = val.strip()
-        if not s or s in ("[]", "null", "None"):
-            return []
-        # Try JSON parsing first if it looks like a JSON array/string
-        if (s.startswith("[") and s.endswith("]")) or (s.startswith('"') and s.endswith('"')):
-            try:
-                parsed = json.loads(s)
+
+    # 2. Handle dictionaries (e.g. {'source_directories': [...]} or {'paths': [...]})
+    if isinstance(val, dict):
+        for k in ("source_directories", "exclusion_patterns", "paths", "directories", "dirs"):
+            if k in val:
+                return normalize_string_list(val[k])
+        result = []
+        for v in val.values():
+            result.extend(normalize_string_list(v))
+        return result
+
+    # 3. Non-string scalar fallback (int, float, Path, etc.)
+    if not isinstance(val, str):
+        val = str(val)
+
+    s = val.strip()
+    if not s or s.lower() in ("none", "null", "[]", "{}", "()", '""', "''"):
+        return []
+
+    # 4. Handle bracketed collections: JSON array [...] or Python list/tuple [...] / (...)
+    if (s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")")):
+        # Try JSON parsing
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, (list, tuple, set, dict)):
                 return normalize_string_list(parsed)
-            except Exception:
-                pass
-        # Fallback to splitting by commas or newlines
-        return [p.strip() for p in re.split(r'[,;\n]+', s) if p.strip()]
-    # Any other scalar
-    return [str(val).strip()]
+        except Exception:
+            pass
+
+        # Try ast.literal_eval for single-quoted Python representations e.g. "['docs/', 'databases/']"
+        try:
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, (list, tuple, set, dict)):
+                return normalize_string_list(parsed)
+        except Exception:
+            pass
+
+    # 5. Handle JSON quoted string e.g. '"docs/"'
+    if s.startswith('"') and s.endswith('"') and len(s) >= 2:
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, (str, list, tuple)):
+                return normalize_string_list(parsed)
+        except Exception:
+            pass
+
+    # 6. Handle delimited strings (comma, semicolon, newline)
+    parts = re.split(r'[,;\n]+', s)
+    if len(parts) > 1:
+        result = []
+        for p in parts:
+            result.extend(normalize_string_list(p))
+        return result
+
+    # 7. Single clean string: strip surrounding single/double quotes if present
+    clean = s.strip().strip("'\"").strip()
+    return [clean] if clean else []
 
 
 def render_backup_plans(client: CloudVaultClient):
@@ -69,8 +114,8 @@ def render_backup_plans(client: CloudVaultClient):
             st.info("No backup plans configured yet. Click 'Create New Plan' above to set one up.")
         else:
             for plan in plans:
-                srcs = normalize_string_list(plan.get("source_directories"))
-                excls = normalize_string_list(plan.get("exclusion_patterns"))
+                srcs = [str(s) for s in normalize_string_list(plan.get("source_directories")) if str(s).strip()]
+                excls = [str(e) for e in normalize_string_list(plan.get("exclusion_patterns")) if str(e).strip()]
 
                 plan_id = str(plan.get("id") or "plan-unknown")
                 plan_name = str(plan.get("plan_name") or "Unnamed Backup Plan")

@@ -198,15 +198,21 @@ def execute_backup_plan(
             raise ValueError("User not found for backup execution")
 
     import json
-    try:
-        source_dirs = json.loads(plan.source_directories)
-    except Exception:
-        source_dirs = [plan.source_directories]
+    if isinstance(plan.source_directories, list):
+        source_dirs = plan.source_directories
+    else:
+        try:
+            source_dirs = json.loads(plan.source_directories)
+        except Exception:
+            source_dirs = [plan.source_directories] if plan.source_directories else []
 
-    try:
-        exclusions = json.loads(plan.exclusion_patterns)
-    except Exception:
-        exclusions = ["*.tmp", ".git", "node_modules", "__pycache__"]
+    if isinstance(plan.exclusion_patterns, list):
+        exclusions = plan.exclusion_patterns
+    else:
+        try:
+            exclusions = json.loads(plan.exclusion_patterns)
+        except Exception:
+            exclusions = ["*.tmp", ".git", "node_modules", "__pycache__"]
 
     start_time = datetime.utcnow()
     job = BackupJob(
